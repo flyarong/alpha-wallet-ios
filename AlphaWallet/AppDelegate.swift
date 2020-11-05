@@ -2,7 +2,6 @@
 import UIKit
 import RealmSwift
 import AWSSNS
-//import AWSCognito
 import AWSCore
 import UserNotifications
 
@@ -43,7 +42,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
         return true
     }
 
-    func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> ()) {
+    func application(_ application: UIApplication, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
         if shortcutItem.type == Constants.launchShortcutKey {
             appCoordinator.launchUniversalScanner()
         }

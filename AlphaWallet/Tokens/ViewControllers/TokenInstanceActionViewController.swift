@@ -20,16 +20,13 @@ class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatus
     private let tokensStorage: TokensDataStore
     private let roundedBackground = RoundedBackground()
     lazy private var tokenScriptRendererView: TokenInstanceWebView = {
-        //TODO pass in keystore or wallet address instead
-        let walletAddress = EtherKeystore.current!.address
-        let webView = TokenInstanceWebView(server: server, walletAddress: walletAddress, assetDefinitionStore: assetDefinitionStore)
+        let webView = TokenInstanceWebView(server: server, wallet: keystore.currentWallet, assetDefinitionStore: assetDefinitionStore)
         webView.isWebViewInteractionEnabled = true
         webView.delegate = self
         webView.isStandalone = true
         webView.isAction = true
         return webView
     }()
-
 
     //TODO might have to change the number of buttons? if the action type change or should we just go back since the flow may be broken if we remain in this screen
     private let buttonsBar = ButtonsBar(configuration: .green(buttons: 1))
@@ -117,7 +114,7 @@ class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatus
 
             footerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            footerBar.topAnchor.constraint(equalTo: view.layoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
+            footerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
             footerBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ] + roundedBackground.createConstraintsWithContainer(view: view))
     }

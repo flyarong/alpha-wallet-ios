@@ -7,8 +7,8 @@ protocol VerifySeedPhraseViewControllerDelegate: class {
     var contextToVerifySeedPhrase: LAContext { get }
     var isInactiveBecauseWeAccessingBiometrics: Bool { get set }
 
-    func didVerifySeedPhraseSuccessfully(for account: EthereumAccount, in viewController: VerifySeedPhraseViewController)
-    func biometricsFailed(for account: EthereumAccount, inViewController viewController: VerifySeedPhraseViewController)
+    func didVerifySeedPhraseSuccessfully(for account: AlphaWallet.Address, in viewController: VerifySeedPhraseViewController)
+    func biometricsFailed(for account: AlphaWallet.Address, inViewController viewController: VerifySeedPhraseViewController)
 }
 
 class VerifySeedPhraseViewController: UIViewController {
@@ -32,7 +32,7 @@ class VerifySeedPhraseViewController: UIViewController {
 
     private var viewModel: VerifySeedPhraseViewModel
     private let keystore: Keystore
-    private let account: EthereumAccount
+    private let account: AlphaWallet.Address
     private let analyticsCoordinator: AnalyticsCoordinator?
     private let roundedBackground = RoundedBackground()
     private let subtitleLabel = UILabel()
@@ -98,7 +98,7 @@ class VerifySeedPhraseViewController: UIViewController {
 
     weak var delegate: VerifySeedPhraseViewControllerDelegate?
 
-    init(keystore: Keystore, account: EthereumAccount, analyticsCoordinator: AnalyticsCoordinator?) {
+    init(keystore: Keystore, account: AlphaWallet.Address, analyticsCoordinator: AnalyticsCoordinator?) {
         self.keystore = keystore
         self.account = account
         self.analyticsCoordinator = analyticsCoordinator
@@ -164,7 +164,7 @@ class VerifySeedPhraseViewController: UIViewController {
 
             footerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            footerBar.topAnchor.constraint(equalTo: view.layoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
+            footerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
             footerBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             roundedBackground.createConstraintsWithContainer(view: view),

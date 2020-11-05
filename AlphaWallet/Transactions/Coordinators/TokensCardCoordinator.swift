@@ -17,6 +17,7 @@ protocol TokensCardCoordinatorDelegate: class, CanOpenURL {
     func didPostTokenScriptTransaction(_ transaction: SentTransaction, in coordinator: TokensCardCoordinator)
 }
 
+// swiftlint:disable type_body_length
 class TokensCardCoordinator: NSObject, Coordinator {
     private let keystore: Keystore
     private let token: TokenObject
@@ -309,10 +310,9 @@ class TokensCardCoordinator: NSObject, Coordinator {
             nativeCurrencyDrop: false
         )
         let orders = [order]
-        let address = keystore.recentlyUsedWallet?.address
+        let address = keystore.currentWallet.address
         let etherKeystore = try! EtherKeystore(analyticsCoordinator: analyticsCoordinator)
-        let account = etherKeystore.getAccount(for: address!)
-        let signedOrders = try! OrderHandler(keystore: etherKeystore).signOrders(orders: orders, account: account!, tokenType: tokenHolder.tokenType)
+        let signedOrders = try! OrderHandler(keystore: etherKeystore).signOrders(orders: orders, account: address, tokenType: tokenHolder.tokenType)
         return UniversalLinkHandler(server: server).createUniversalLink(signedOrder: signedOrders[0], tokenType: tokenHolder.tokenType)
     }
 
@@ -336,10 +336,9 @@ class TokensCardCoordinator: NSObject, Coordinator {
                 nativeCurrencyDrop: false
         )
         let orders = [order]
-        let address = keystore.recentlyUsedWallet?.address
+        let address = keystore.currentWallet.address
         let etherKeystore = try! EtherKeystore(analyticsCoordinator: analyticsCoordinator)
-        let account = etherKeystore.getAccount(for: address!)
-        let signedOrders = try! OrderHandler(keystore: etherKeystore).signOrders(orders: orders, account: account!, tokenType: tokenHolder.tokenType)
+        let signedOrders = try! OrderHandler(keystore: etherKeystore).signOrders(orders: orders, account: address, tokenType: tokenHolder.tokenType)
         return UniversalLinkHandler(server: server).createUniversalLink(signedOrder: signedOrders[0], tokenType: tokenHolder.tokenType)
     }
 
@@ -427,6 +426,7 @@ class TokensCardCoordinator: NSObject, Coordinator {
         viewController.navigationController?.pushViewController(vc, animated: true)
     }
 }
+// swiftlint:enable type_body_length
 
 extension TokensCardCoordinator: TokensCardViewControllerDelegate {
     func didPressRedeem(token: TokenObject, tokenHolder: TokenHolder, in viewController: TokensCardViewController) {

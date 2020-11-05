@@ -20,7 +20,12 @@ struct ActivitiesViewModel {
         }
         let tuple = newItems.map { each in
             (date: each.key, items: (each.value as! [ActivityOrTransaction]).sorted {
-                if $0.blockNumber > $1.blockNumber {
+                //Show pending transactions at the top
+                if $0.blockNumber == 0 && $1.blockNumber != 0 {
+                    return true
+                } else if $0.blockNumber != 0 && $1.blockNumber == 0 {
+                    return false
+                } else if $0.blockNumber > $1.blockNumber {
                     return true
                 } else if $0.blockNumber < $1.blockNumber {
                     return false
@@ -33,9 +38,9 @@ struct ActivitiesViewModel {
                         switch ($0, $1) {
                         case let (.activity(a0), .activity(a1)):
                             return a0.logIndex > a1.logIndex
-                        case let (.transaction, .activity):
+                        case (.transaction, .activity):
                             return false
-                        case let (.activity, .transaction):
+                        case (.activity, .transaction):
                             return true
                         case let (.transaction(t0), .transaction(t1)):
                             if let n0 = Int(t0.nonce), let n1 = Int(t1.nonce) {

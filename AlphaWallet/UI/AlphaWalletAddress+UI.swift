@@ -34,6 +34,12 @@ extension AlphaWallet.Address {
 //        case "p-eos":
 //            return R.image.tokenPeos()
 
+        //CoFiX
+        case "0x1a23a6BfBAdB59fa563008c0fB7cf96dfCF34Ea1":
+            return R.image.tokenCofi()
+        case "0xb2b7BeDd7d7fc19804C7Dd4a4E8174C4c73C210d":
+            return R.image.tokenCofix()
+
         //other
         case "0xbd31496feb604F9eC6a1C78c3371f8cFd220f5F2":
             return R.image.tokenTeo()

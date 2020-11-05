@@ -43,11 +43,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     private var nativeCryptoCurrencyBalanceView: NativeCryptoCurrencyBalanceView {
         //Not the best implementation. Hopefully this will be unnecessary
         let safeAreaInsetsTop: CGFloat
-        if #available(iOS 11, *) {
-            safeAreaInsetsTop = navigationController.view.safeAreaInsets.top
-        } else {
-            safeAreaInsetsTop = 20
-        }
+        safeAreaInsetsTop = navigationController.view.safeAreaInsets.top
         _nativeCryptoCurrencyBalanceView.topMargin = 56 + safeAreaInsetsTop
         return _nativeCryptoCurrencyBalanceView
     }
@@ -106,7 +102,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     }
 
     var coordinators: [Coordinator] = []
-    let navigationController: NavigationController
+    let navigationController: UINavigationController
 
     lazy var rootViewController: DappsHomeViewController = {
         let vc = DappsHomeViewController(bookmarksStore: bookmarksStore)
@@ -123,7 +119,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         sharedRealm: Realm,
         browserOnly: Bool
     ) {
-        self.navigationController = NavigationController(navigationBarClass: DappBrowserNavigationBar.self, toolbarClass: nil)
+        self.navigationController = UINavigationController(navigationBarClass: DappBrowserNavigationBar.self, toolbarClass: nil)
         self.sessions = sessions
         self.keystore = keystore
         self.config = config
@@ -147,7 +143,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         navigationController.dismiss(animated: true, completion: nil)
     }
 
-    private func executeTransaction(account: EthereumAccount, action: DappAction, callbackID: Int, transaction: UnconfirmedTransaction, type: ConfirmType, server: RPCServer) {
+    private func executeTransaction(account: AlphaWallet.Address, action: DappAction, callbackID: Int, transaction: UnconfirmedTransaction, type: ConfirmType, server: RPCServer) {
         let configurator = TransactionConfigurator(
             session: session,
             account: account,
@@ -219,7 +215,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         }
     }
 
-    func signMessage(with type: SignMessageType, account: EthereumAccount, callbackID: Int) {
+    func signMessage(with type: SignMessageType, account: AlphaWallet.Address, callbackID: Int) {
         nativeCryptoCurrencyBalanceView.hide()
         let coordinator = SignMessageCoordinator(
             navigationController: navigationController,

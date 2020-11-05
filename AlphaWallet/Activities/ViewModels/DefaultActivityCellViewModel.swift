@@ -31,23 +31,23 @@ struct DefaultActivityCellViewModel {
         switch activity.nativeViewType {
         case .erc20Sent, .erc721Sent, .nativeCryptoSent:
             let string = NSMutableAttributedString(string: "\(R.string.localizable.transactionCellSentTitle()) \(symbol)")
-            string.addAttribute(.font, value: Fonts.regular(size: 17)! , range: NSRange(location: 0, length: string.length))
-            string.addAttribute(.font, value: Fonts.semibold(size: 17)! , range: NSRange(location: string.length - symbol.count, length: symbol.count))
+            string.addAttribute(.font, value: Fonts.regular(size: 17)!, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: Fonts.semibold(size: 17)!, range: NSRange(location: string.length - symbol.count, length: symbol.count))
             return string
         case .erc20Received, .erc721Received, .nativeCryptoReceived:
             let string = NSMutableAttributedString(string: "\(R.string.localizable.transactionCellReceivedTitle()) \(symbol)")
-            string.addAttribute(.font, value: Fonts.regular(size: 17)! , range: NSRange(location: 0, length: string.length))
-            string.addAttribute(.font, value: Fonts.semibold(size: 17)! , range: NSRange(location: string.length - symbol.count, length: symbol.count))
+            string.addAttribute(.font, value: Fonts.regular(size: 17)!, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: Fonts.semibold(size: 17)!, range: NSRange(location: string.length - symbol.count, length: symbol.count))
             return string
         case .erc20OwnerApproved, .erc721OwnerApproved:
             let string = NSMutableAttributedString(string: R.string.localizable.activityOwnerApproved(symbol))
-            string.addAttribute(.font, value: Fonts.regular(size: 17)! , range: NSRange(location: 0, length: string.length))
-            string.addAttribute(.font, value: Fonts.semibold(size: 17)! , range: NSRange(location: string.length - symbol.count, length: symbol.count))
+            string.addAttribute(.font, value: Fonts.regular(size: 17)!, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: Fonts.semibold(size: 17)!, range: NSRange(location: string.length - symbol.count, length: symbol.count))
             return string
         case .erc20ApprovalObtained, .erc721ApprovalObtained:
             let string = NSMutableAttributedString(string: R.string.localizable.activityApprovalObtained(symbol))
-            string.addAttribute(.font, value: Fonts.regular(size: 17)! , range: NSRange(location: 0, length: string.length))
-            string.addAttribute(.font, value: Fonts.semibold(size: 17)! , range: NSRange(location: string.length - symbol.count, length: symbol.count))
+            string.addAttribute(.font, value: Fonts.regular(size: 17)!, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: Fonts.semibold(size: 17)!, range: NSRange(location: string.length - symbol.count, length: symbol.count))
             return string
         case .none:
             return .init()
@@ -116,7 +116,7 @@ struct DefaultActivityCellViewModel {
         case .erc20Sent, .erc20Received, .erc20OwnerApproved, .erc20ApprovalObtained, .nativeCryptoSent, .nativeCryptoReceived:
             if let value = cardAttributes["amount"]?.uintValue {
                 let formatter = EtherNumberFormatter.short
-                let value = formatter.string(from: BigInt(value))
+                let value = formatter.string(from: BigInt(value), decimals: activity.tokenObject.decimals)
                 return "\(sign)\(value) \(activity.tokenObject.symbol)"
             } else {
                 return ""

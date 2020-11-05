@@ -10,17 +10,13 @@ import BigInt
 import MBProgressHUD
 
 protocol SendViewControllerDelegate: class, CanOpenURL {
-    func didPressConfirm(
-            transaction: UnconfirmedTransaction,
-            transferType: TransferType,
-            in viewController: SendViewController
-    )
+    func didPressConfirm(transaction: UnconfirmedTransaction, in viewController: SendViewController)
     func lookup(contract: AlphaWallet.Address, in viewController: SendViewController, completion: @escaping (ContractData) -> Void)
     func openQRCode(in controller: SendViewController)
 }
 
 // swiftlint:disable type_body_length
-class SendViewController: UIViewController, CanScanQRCode {
+class SendViewController: UIViewController {
     private let roundedBackground = RoundedBackground()
     private let scrollView = UIScrollView()
     private let recipientHeader = SendViewSectionHeader()
@@ -31,10 +27,9 @@ class SendViewController: UIViewController, CanScanQRCode {
     private var viewModel: SendViewModel
     private var balanceViewModel: BalanceBaseViewModel?
     private let session: WalletSession
-    private let account: EthereumAccount
+    private let account: AlphaWallet.Address
     private let ethPrice: Subscribable<Double>
     private let assetDefinitionStore: AssetDefinitionStore
-    private var gasPrice: BigInt?
     private var data = Data()
     private lazy var decimalFormatter: DecimalFormatter = {
         return DecimalFormatter()
@@ -65,7 +60,7 @@ class SendViewController: UIViewController, CanScanQRCode {
     init(
             session: WalletSession,
             storage: TokensDataStore,
-            account: EthereumAccount,
+            account: AlphaWallet.Address,
             transferType: TransferType,
             cryptoPrice: Subscribable<Double>,
             assetDefinitionStore: AssetDefinitionStore
@@ -170,7 +165,7 @@ class SendViewController: UIViewController, CanScanQRCode {
 
             footerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            footerBar.topAnchor.constraint(equalTo: view.layoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
+            footerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
             footerBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -187,7 +182,6 @@ class SendViewController: UIViewController, CanScanQRCode {
         ] + roundedBackground.createConstraintsWithContainer(view: view))
 
         storage.updatePrices()
-        getGasPrice()
     }
 // swiftlint:enable function_body_length
 
@@ -268,17 +262,6 @@ class SendViewController: UIViewController, CanScanQRCode {
         title = "\(R.string.localizable.send()) \(transferType.symbol)"
     }
 
-    func getGasPrice() {
-        let request = EtherServiceRequest(server: session.server, batch: BatchFactory().create(GasPriceRequest()))
-        Session.send(request) { [weak self] result in
-            switch result {
-            case .success(let balance):
-                self?.gasPrice = BigInt(balance.drop0x, radix: 16)
-            case .failure: break
-            }
-        }
-    }
-
     @objc func send() {
         let input = targetAddressTextField.value.trimmed
         targetAddressTextField.errorState = .none
@@ -308,7 +291,7 @@ class SendViewController: UIViewController, CanScanQRCode {
                 data: data,
                 gasLimit: .none,
                 tokenId: .none,
-                gasPrice: gasPrice,
+                gasPrice: .none,
                 nonce: .none,
                 v: .none,
                 r: .none,
@@ -318,7 +301,7 @@ class SendViewController: UIViewController, CanScanQRCode {
                 tokenIds: .none
         )
 
-        delegate?.didPressConfirm(transaction: transaction, transferType: transferType, in: self)
+        delegate?.didPressConfirm(transaction: transaction, in: self)
     }
 
     func activateAmountView() {

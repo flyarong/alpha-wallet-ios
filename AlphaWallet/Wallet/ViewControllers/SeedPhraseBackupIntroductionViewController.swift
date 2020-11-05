@@ -4,12 +4,12 @@ import UIKit
 
 protocol SeedPhraseBackupIntroductionViewControllerDelegate: class {
     func didTapBackupWallet(inViewController viewController: SeedPhraseBackupIntroductionViewController)
-    func didClose(for account: EthereumAccount, inViewController viewController: SeedPhraseBackupIntroductionViewController)
+    func didClose(for account: AlphaWallet.Address, inViewController viewController: SeedPhraseBackupIntroductionViewController)
 }
 
 class SeedPhraseBackupIntroductionViewController: UIViewController {
     private var viewModel = SeedPhraseBackupIntroductionViewModel()
-    private let account: EthereumAccount
+    private let account: AlphaWallet.Address
     private let roundedBackground = RoundedBackground()
     private let subtitleLabel = UILabel()
     private let imageView = UIImageView()
@@ -27,7 +27,7 @@ class SeedPhraseBackupIntroductionViewController: UIViewController {
 
     weak var delegate: SeedPhraseBackupIntroductionViewControllerDelegate?
 
-    init(account: EthereumAccount) {
+    init(account: AlphaWallet.Address) {
         self.account = account
         super.init(nibName: nil, bundle: nil)
 
@@ -73,7 +73,7 @@ class SeedPhraseBackupIntroductionViewController: UIViewController {
 
             footerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            footerBar.topAnchor.constraint(equalTo: view.layoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
+            footerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
             footerBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ] + roundedBackground.createConstraintsWithContainer(view: view))
     }
@@ -95,7 +95,7 @@ class SeedPhraseBackupIntroductionViewController: UIViewController {
 
         subtitleLabel.numberOfLines = 0
         subtitleLabel.attributedText = viewModel.attributedSubtitle
-        
+
         imageView.image = viewModel.imageViewImage
 
         descriptionLabel1.numberOfLines = 0

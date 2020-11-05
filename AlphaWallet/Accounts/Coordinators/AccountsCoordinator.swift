@@ -23,7 +23,7 @@ class AccountsCoordinator: Coordinator {
     var coordinators: [Coordinator] = []
 
     lazy var accountsViewController: AccountsViewController = {
-        let controller = AccountsViewController(config: config, keystore: keystore, balanceCoordinator: balanceCoordinator, analyticsCoordinator: analyticsCoordinator)
+        let controller = AccountsViewController(config: config, keystore: keystore, balanceCoordinator: balanceCoordinator)
         controller.navigationItem.leftBarButtonItem = UIBarButtonItem(image: R.image.backWhite(), style: .done, target: self, action: #selector(dismiss))
         controller.navigationItem.rightBarButtonItem = UIBarButtonItem(title: R.string.localizable.addButtonTitle(), style: .plain, target: self, action: #selector(addWallet))
         controller.allowsAccountDeletion = true
@@ -123,12 +123,12 @@ class AccountsCoordinator: Coordinator {
             controller.addAction(backupKeystoreAction)
 
             let renameAction = UIAlertAction(title: R.string.localizable.walletsNameRename(), style: .default) { [weak self] _ in
-                self?.promptRenameWallet(account.address)
+                self?.promptRenameWallet(account)
             }
             controller.addAction(renameAction)
 
             let copyAction = UIAlertAction(title: R.string.localizable.copyAddress(), style: .default) { _ in
-                UIPasteboard.general.string = account.address.eip55String
+                UIPasteboard.general.string = account.eip55String
             }
             controller.addAction(copyAction)
 
@@ -245,7 +245,7 @@ extension AccountsCoordinator: BackupCoordinatorDelegate {
         removeCoordinator(coordinator)
     }
 
-    func didFinish(account: EthereumAccount, in coordinator: BackupCoordinator) {
+    func didFinish(account: AlphaWallet.Address, in coordinator: BackupCoordinator) {
         promptBackupCoordinator.markBackupDone()
         promptBackupCoordinator.showHideCurrentPrompt()
         removeCoordinator(coordinator)
