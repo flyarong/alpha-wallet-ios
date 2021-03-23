@@ -8,16 +8,18 @@ protocol SettingsViewControllerDelegate: class, CanOpenURL {
     func settingsViewControllerChangeWalletSelected(in controller: SettingsViewController)
     func settingsViewControllerMyWalletAddressSelected(in controller: SettingsViewController)
     func settingsViewControllerBackupWalletSelected(in controller: SettingsViewController)
+    func settingsViewControllerShowSeedPhraseSelected(in controller: SettingsViewController)
+    func settingsViewControllerWalletConnectSelected(in controller: SettingsViewController)
     func settingsViewControllerActiveNetworksSelected(in controller: SettingsViewController)
     func settingsViewControllerHelpSelected(in controller: SettingsViewController)
 }
 
 class SettingsViewController: UIViewController {
     private let lock = Lock()
-    private let config: Config
+    private var config: Config
     private let keystore: Keystore
     private let account: Wallet
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let promptBackupWalletViewHolder = UIView()
     private let tableView: UITableView = {
         let tableView = UITableView(frame: .zero, style: .plain)
@@ -29,7 +31,7 @@ class SettingsViewController: UIViewController {
 
         return tableView
     }()
-    private lazy var viewModel: SettingsViewModel = SettingsViewModel(account: account)
+    private lazy var viewModel: SettingsViewModel = SettingsViewModel(account: account, keystore: keystore)
 
     weak var delegate: SettingsViewControllerDelegate?
     var promptBackupWalletView: UIView? {
@@ -57,7 +59,7 @@ class SettingsViewController: UIViewController {
         view = tableView
     }
 
-    init(config: Config, keystore: Keystore, account: Wallet, analyticsCoordinator: AnalyticsCoordinator?) {
+    init(config: Config, keystore: Keystore, account: Wallet, analyticsCoordinator: AnalyticsCoordinator) {
         self.config = config
         self.keystore = keystore
         self.account = account
@@ -115,7 +117,7 @@ class SettingsViewController: UIViewController {
     private func configureChangeWalletCellWithResolvedENS(_ row: SettingsWalletRow, cell: SettingTableViewCell) {
         cell.configure(viewModel: .init(
             titleText: row.title,
-            subTitleText: self.viewModel.addressReplacedWithENSOrWalletName(),
+            subTitleText: viewModel.addressReplacedWithENSOrWalletName(),
             icon: row.icon)
         )
 
@@ -134,7 +136,7 @@ class SettingsViewController: UIViewController {
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 }
 
@@ -156,12 +158,31 @@ extension SettingsViewController: CanOpenURL {
 extension SettingsViewController: SwitchTableViewCellDelegate {
 
     func cell(_ cell: SwitchTableViewCell, switchStateChanged isOn: Bool) {
-        if isOn {
-            setPasscode { result in
-                cell.isOn = result
+        guard let indexPath = cell.indexPath else { return }
+
+        switch viewModel.sections[indexPath.section] {
+        case .system(let rows):
+            switch rows[indexPath.row] {
+            case .passcode:
+                if isOn {
+                    setPasscode { result in
+                        cell.isOn = result
+                    }
+                } else {
+                    lock.deletePasscode()
+                }
+            case .notifications, .selectActiveNetworks, .advanced:
+                break
             }
-        } else {
-            lock.deletePasscode()
+        case .help, .tokenStandard, .version:
+            break
+        case .wallet(let rows):
+            switch rows[indexPath.row] {
+            case .changeWallet, .backup, .showMyWallet, .showSeedPhrase, .walletConnect:
+                break
+            case .useTaiChiNetwork:
+                config.useTaiChiNetwork = isOn
+            }
         }
     }
 }
@@ -208,16 +229,26 @@ extension SettingsViewController: UITableViewDataSource {
             switch row {
             case .changeWallet:
                 configureChangeWalletCellWithResolvedENS(row, cell: cell)
+
+                return cell
             case .backup:
                 cell.configure(viewModel: .init(settingsWalletRow: row))
-                let walletSecurityLevel = PromptBackupCoordinator(keystore: self.keystore, wallet: self.account, config: .init(), analyticsCoordinator: analyticsCoordinator).securityLevel
+                let walletSecurityLevel = PromptBackupCoordinator(keystore: keystore, wallet: account, config: .init(), analyticsCoordinator: analyticsCoordinator).securityLevel
                 cell.accessoryView = walletSecurityLevel.flatMap { WalletSecurityLevelIndicator(level: $0) }
                 cell.accessoryType = .disclosureIndicator
-            case .showMyWallet:
-                cell.configure(viewModel: .init(settingsWalletRow: row))
-            }
 
-            return cell
+                return cell
+            case .showMyWallet, .showSeedPhrase, .walletConnect:
+                cell.configure(viewModel: .init(settingsWalletRow: row))
+
+                return cell
+            case .useTaiChiNetwork:
+                let cell: SwitchTableViewCell = tableView.dequeueReusableCell(for: indexPath)
+                cell.configure(viewModel: .init(titleText: row.title, icon: row.icon, value: config.useTaiChiNetwork))
+                cell.delegate = self
+
+                return cell
+            }
         case .tokenStandard, .version:
             return UITableViewCell()
         }
@@ -249,6 +280,12 @@ extension SettingsViewController: UITableViewDelegate {
                 delegate?.settingsViewControllerChangeWalletSelected(in: self)
             case .showMyWallet:
                 delegate?.settingsViewControllerMyWalletAddressSelected(in: self)
+            case .showSeedPhrase:
+                delegate?.settingsViewControllerShowSeedPhraseSelected(in: self)
+            case .walletConnect:
+                delegate?.settingsViewControllerWalletConnectSelected(in: self)
+            case .useTaiChiNetwork:
+                break
             }
         case .system(let rows):
             switch rows[indexPath.row] {

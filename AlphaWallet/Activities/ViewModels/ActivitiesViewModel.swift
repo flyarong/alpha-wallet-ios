@@ -3,23 +3,38 @@
 import Foundation
 import UIKit
 
+enum ActivityOrTransactionFilter {
+    case keyword(_ value: String?)
+}
+
 struct ActivitiesViewModel {
-    private var formatter: DateFormatter {
+    private static var formatter: DateFormatter {
         return Date.formatter(with: "dd MMM yyyy")
     }
-    private var items: [(date: String, items: [ActivityOrTransaction])] = []
 
-    init(activities: [ActivityOrTransaction] = []) {
+    typealias MappedToDateActivityOrTransaction = (date: String, items: [ActivityOrTransactionRow])
+
+    private var items: [MappedToDateActivityOrTransaction] = []
+    private var filteredItems: [MappedToDateActivityOrTransaction] = []
+    private let tokensStorages: ServerDictionary<TokensDataStore>
+
+    init(tokensStorages: ServerDictionary<TokensDataStore>, activities: [MappedToDateActivityOrTransaction] = []) {
+        items = activities
+        self.tokensStorages = tokensStorages
+    }
+
+    static func sorted(activities: [ActivityOrTransactionRow]) -> [MappedToDateActivityOrTransaction] {
         //Uses NSMutableArray instead of Swift array for performance. Really slow when dealing with 10k events, which is hardly a big wallet
         var newItems: [String: NSMutableArray] = [:]
         for each in activities {
-            let date = formatter.string(from: each.date)
+            let date = ActivitiesViewModel.formatter.string(from: each.date)
             let currentItems = newItems[date] ?? .init()
             currentItems.add(each)
             newItems[date] = currentItems
         }
-        let tuple = newItems.map { each in
-            (date: each.key, items: (each.value as! [ActivityOrTransaction]).sorted {
+
+        return newItems.map { each in
+            (date: each.key, items: (each.value as! [ActivityOrTransactionRow]).sorted {
                 //Show pending transactions at the top
                 if $0.blockNumber == 0 && $1.blockNumber != 0 {
                     return true
@@ -38,11 +53,11 @@ struct ActivitiesViewModel {
                         switch ($0, $1) {
                         case let (.activity(a0), .activity(a1)):
                             return a0.logIndex > a1.logIndex
-                        case (.transaction, .activity):
+                        case (.transactionRow, .activity):
                             return false
-                        case (.activity, .transaction):
+                        case (.activity, .transactionRow):
                             return true
-                        case let (.transaction(t0), .transaction(t1)):
+                        case let (.transactionRow(t0), .transactionRow(t1)):
                             if let n0 = Int(t0.nonce), let n1 = Int(t1.nonce) {
                                 return n0 > n1
                             } else {
@@ -52,10 +67,49 @@ struct ActivitiesViewModel {
                     }
                 }
             })
+        }.sorted { (object1, object2) -> Bool in
+            //NOTE: Remove force unwrap to prevent crash 
+            guard let date1 = ActivitiesViewModel.formatter.date(from: object1.date), let date2 = ActivitiesViewModel.formatter.date(from: object2.date) else {
+                return false
+            }
+            return date1 > date2
         }
-        items = tuple.sorted { (object1, object2) -> Bool in
-            formatter.date(from: object1.date)! > formatter.date(from: object2.date)!
+    }
+
+    mutating func filter(_ filter: ActivityOrTransactionFilter) {
+        var newFilteredItems = items
+
+        switch filter {
+        case .keyword(let keyword):
+            if let valueToSearch = keyword?.trimmed.lowercased(), valueToSearch.nonEmpty {
+                let twoKeywords = splitIntoExactlyTwoKeywords(valueToSearch)
+                let results = newFilteredItems.compactMap { date, content -> MappedToDateActivityOrTransaction? in
+                    let data: [ActivityOrTransactionRow]
+                    if let twoKeywords = twoKeywords {
+                        //Special case to support keywords like "Sent CoFi"
+                        data = content.filter { data -> Bool in
+                            (data.activityName?.lowercased().contains(twoKeywords.0) ?? false) &&
+                                    (data.getTokenSymbol(fromTokensStorages: tokensStorages)?.lowercased().contains(twoKeywords.1) ?? false)
+                        }
+                    } else {
+                        data = content.filter { data -> Bool in
+                            (data.activityName?.lowercased().contains(valueToSearch) ?? false) ||
+                                    (data.getTokenSymbol(fromTokensStorages: tokensStorages)?.lowercased().contains(valueToSearch) ?? false)
+                        }
+                    }
+
+                    if data.isEmpty {
+                        return nil
+                    } else {
+                        return (date: date, items: data)
+                    }
+                }
+
+                newFilteredItems = results
+            }
         }
+
+        filteredItems = newFilteredItems
     }
 
     var backgroundColor: UIColor {
@@ -75,20 +129,21 @@ struct ActivitiesViewModel {
     }
 
     var numberOfSections: Int {
-        items.count
+        filteredItems.count
     }
 
     func numberOfItems(for section: Int) -> Int {
-        items[section].items.count
+        filteredItems[section].items.count
     }
 
-    func item(for row: Int, section: Int) -> ActivityOrTransaction {
-        items[section].items[row]
+    func item(for row: Int, section: Int) -> ActivityOrTransactionRow {
+        filteredItems[section].items[row]
     }
 
     func titleForHeader(in section: Int) -> String {
-        let value = items[section].date
-        let date = formatter.date(from: value)!
+        let value = filteredItems[section].date
+
+        let date = ActivitiesViewModel.formatter.date(from: value)!
         if NSCalendar.current.isDateInToday(date) {
             return R.string.localizable.today().localizedUppercase
         }
@@ -96,5 +151,17 @@ struct ActivitiesViewModel {
             return R.string.localizable.yesterday().localizedUppercase
         }
         return value.localizedUppercase
+    }
+
+    private func splitIntoExactlyTwoKeywords(_ string: String) -> (String, String)? {
+        let components = string.split(separator: " ")
+        guard components.count == 2 else { return nil }
+        return (String(components[0]), String(components[1]))
+    }
+}
+
+extension String {
+    var nonEmpty: Bool {
+        return !self.trimmed.isEmpty
     }
 }

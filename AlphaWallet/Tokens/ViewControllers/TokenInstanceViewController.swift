@@ -13,6 +13,7 @@ protocol TokenInstanceViewControllerDelegate: class, CanOpenURL {
 }
 
 class TokenInstanceViewController: UIViewController, TokenVerifiableStatusViewController {
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let tokenObject: TokenObject
     private var viewModel: TokenInstanceViewModel
     private let tokensStorage: TokensDataStore
@@ -51,7 +52,8 @@ class TokenInstanceViewController: UIViewController, TokenVerifiableStatusViewCo
         }
     }
 
-    init(tokenObject: TokenObject, tokenHolder: TokenHolder, account: Wallet, tokensStorage: TokensDataStore, assetDefinitionStore: AssetDefinitionStore) {
+    init(analyticsCoordinator: AnalyticsCoordinator, tokenObject: TokenObject, tokenHolder: TokenHolder, account: Wallet, tokensStorage: TokensDataStore, assetDefinitionStore: AssetDefinitionStore) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.tokenObject = tokenObject
         self.account = account
         self.tokensStorage = tokensStorage
@@ -144,13 +146,13 @@ class TokenInstanceViewController: UIViewController, TokenVerifiableStatusViewCo
     }
 
     func transfer() {
-        let transferType = TransferType(token: tokenObject)
-        delegate?.didPressTransfer(token: tokenObject, tokenHolder: tokenHolder, forPaymentFlow: .send(type: transferType), in: self)
+        let transactionType = TransactionType(token: tokenObject)
+        delegate?.didPressTransfer(token: tokenObject, tokenHolder: tokenHolder, forPaymentFlow: .send(type: transactionType), in: self)
     }
 
     private func handle(action: TokenInstanceAction) {
         switch action.type {
-        case .erc20Send, .erc20Receive, .erc20ExchangeOnUniswap:
+        case .erc20Send, .erc20Receive, .swap, .xDaiBridge, .buy:
             //TODO when we support TokenScript views for ERC20s, we need to perform the action here
             break
         case .nftRedeem:
@@ -203,7 +205,7 @@ class TokenInstanceViewController: UIViewController, TokenVerifiableStatusViewCo
             }()
         case .notBackedByOpenSea:
             rowView = {
-                let view = TokenCardRowView(server: .main, tokenView: .view, showCheckbox: false, assetDefinitionStore: assetDefinitionStore)
+                let view = TokenCardRowView(analyticsCoordinator: analyticsCoordinator, server: .main, tokenView: .view, showCheckbox: false, assetDefinitionStore: assetDefinitionStore)
                 view.isStandalone = true
                 view.tokenScriptRendererView.isWebViewInteractionEnabled = true
                 return view

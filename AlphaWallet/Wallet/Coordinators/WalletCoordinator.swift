@@ -10,10 +10,9 @@ protocol WalletCoordinatorDelegate: class {
 
 class WalletCoordinator: Coordinator {
     private let config: Config
-    private var entryPoint: WalletEntryPoint?
     private var keystore: Keystore
     private weak var importWalletViewController: ImportWalletViewController?
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
 
     var navigationController: UINavigationController
     weak var delegate: WalletCoordinatorDelegate?
@@ -23,11 +22,10 @@ class WalletCoordinator: Coordinator {
         config: Config,
         navigationController: UINavigationController = UINavigationController(),
         keystore: Keystore,
-        analyticsCoordinator: AnalyticsCoordinator?
+        analyticsCoordinator: AnalyticsCoordinator
     ) {
         self.config = config
         self.navigationController = navigationController
-        self.navigationController.modalPresentationStyle = .formSheet
         self.keystore = keystore
         self.analyticsCoordinator = analyticsCoordinator
         navigationController.navigationBar.isTranslucent = false
@@ -35,13 +33,7 @@ class WalletCoordinator: Coordinator {
 
     ///Return true if caller should proceed to show UI (`navigationController`)
     @discardableResult func start(_ entryPoint: WalletEntryPoint) -> Bool {
-        self.entryPoint = entryPoint
         switch entryPoint {
-        case .welcome:
-            let controller = WelcomeViewController()
-            controller.delegate = self
-            controller.navigationItem.leftBarButtonItem = UIBarButtonItem(title: R.string.localizable.cancel(), style: .plain, target: self, action: #selector(dismiss))
-            navigationController.viewControllers = [controller]
         case .importWallet:
             let controller = ImportWalletViewController(keystore: keystore, analyticsCoordinator: analyticsCoordinator)
             controller.delegate = self
@@ -114,9 +106,9 @@ class WalletCoordinator: Coordinator {
         let coordinator = WalletCoordinator(config: config, keystore: keystore, analyticsCoordinator: analyticsCoordinator)
         coordinator.delegate = self
         addCoordinator(coordinator)
-        let _ = coordinator.start(entryPoint)
+        coordinator.start(entryPoint)
         coordinator.navigationController.makePresentationFullScreenForiOS13Migration()
-        navigationController.present(coordinator.navigationController, animated: true, completion: nil)
+        navigationController.present(coordinator.navigationController, animated: true)
     }
 
     @objc func dismiss() {
@@ -133,46 +125,15 @@ class WalletCoordinator: Coordinator {
     }
 }
 
-//Disable creating and importing wallets from welcome screen
-//extension WalletCoordinator: WelcomeViewControllerDelegate {
-//    func didPressImportWallet(in viewController: WelcomeViewController) {
-//        pushImportWallet()
-//    }
-
-//    func didPressCreateWallet(in viewController: WelcomeViewController) {
-//        createInstantWallet()
-//    }
-//}
-
-extension WalletCoordinator: WelcomeViewControllerDelegate {
-    func didPressGettingStartedButton(in viewController: WelcomeViewController) {
-//        showInitialWalletCoordinator(entryPoint: .createInstantWallet)
-    }
-}
-
-extension WalletCoordinator: ScanQRCodeCoordinatorDelegate {
-
-    func didCancel(in coordinator: ScanQRCodeCoordinator) {
-        removeCoordinator(coordinator)
-    }
-
-    func didScan(result: String, in coordinator: ScanQRCodeCoordinator) {
-        removeCoordinator(coordinator)
-
-        importWalletViewController?.didScanQRCode(result)
-    }
-
-}
-
 extension WalletCoordinator: ImportWalletViewControllerDelegate {
 
     func openQRCode(in controller: ImportWalletViewController) {
         guard navigationController.ensureHasDeviceAuthorization() else { return }
-        let coordinator = ScanQRCodeCoordinator(navigationController: navigationController, account: keystore.currentWallet, server: config.server)
+        let scanQRCodeCoordinator = ScanQRCodeCoordinator(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, account: keystore.recentlyUsedWallet)
+        let coordinator = QRCodeResolutionCoordinator(config: config, coordinator: scanQRCodeCoordinator, usage: .importWalletOnly)
         coordinator.delegate = self
-
         addCoordinator(coordinator)
-        coordinator.start()
+        coordinator.start(fromSource: .importWalletScreen)
     }
 
     func didImportAccount(account: Wallet, in viewController: ImportWalletViewController) {
@@ -181,7 +142,63 @@ extension WalletCoordinator: ImportWalletViewControllerDelegate {
     }
 }
 
+extension WalletCoordinator: QRCodeResolutionCoordinatorDelegate {
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveAddress address: AlphaWallet.Address, action: ScanQRCodeAction) {
+        removeCoordinator(coordinator)
+
+        importWalletViewController?.set(tabSelection: .watch)
+        importWalletViewController?.setValueForCurrentField(string: address.eip55String)
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveTransactionType transactionType: TransactionType, token: TokenObject) {
+        removeCoordinator(coordinator)
+        //no op
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveWalletConnectURL url: WalletConnectURL) {
+        removeCoordinator(coordinator)
+        //no op
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveString value: String) {
+        removeCoordinator(coordinator)
+        //no op
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveURL url: URL) {
+        removeCoordinator(coordinator)
+        //no op
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveJSON json: String) {
+        removeCoordinator(coordinator)
+
+        importWalletViewController?.set(tabSelection: .keystore)
+        importWalletViewController?.setValueForCurrentField(string: json)
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveSeedPhase seedPhase: [String]) {
+        removeCoordinator(coordinator)
+
+        importWalletViewController?.set(tabSelection: .mnemonic)
+        importWalletViewController?.setValueForCurrentField(string: seedPhase.joined(separator: " "))
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolvePrivateKey privateKey: String) {
+        removeCoordinator(coordinator)
+
+        importWalletViewController?.set(tabSelection: .privateKey)
+        importWalletViewController?.setValueForCurrentField(string: privateKey)
+    }
+
+    func didCancel(in coordinator: QRCodeResolutionCoordinator) {
+        removeCoordinator(coordinator)
+    }
+}
+
 extension WalletCoordinator: CreateInitialWalletViewControllerDelegate {
+
     func didTapCreateWallet(inViewController viewController: CreateInitialWalletViewController) {
         createInstantWallet()
     }
@@ -196,14 +213,16 @@ extension WalletCoordinator: CreateInitialWalletViewControllerDelegate {
 }
 
 extension WalletCoordinator: WalletCoordinatorDelegate {
+
     func didFinish(with account: Wallet, in coordinator: WalletCoordinator) {
-        coordinator.navigationController.dismiss(animated: false, completion: nil)
-        self.removeCoordinator(coordinator)
-        self.delegate?.didFinish(with: account, in: self)
+        coordinator.navigationController.dismiss(animated: false)
+
+        removeCoordinator(coordinator)
+        delegate?.didFinish(with: account, in: self)
     }
 
     func didCancel(in coordinator: WalletCoordinator) {
-        coordinator.navigationController.dismiss(animated: true, completion: nil)
-        self.removeCoordinator(coordinator)
+        coordinator.navigationController.dismiss(animated: true)
+        removeCoordinator(coordinator)
     }
 }

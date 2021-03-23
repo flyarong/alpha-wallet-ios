@@ -38,9 +38,10 @@ class DecimalFormatterTest: XCTestCase {
         XCTAssertEqual(frDecimalFormatter.number(from: ",25"), NSNumber(value: 0.25))
     }
     func testNumberToStingInFr() {
-        XCTAssertEqual(frDecimalFormatter.string(from: NSNumber(value: 1000.25))!, "1 000,25")
-        //TODO This is required when we switch our tests (and Travis) to run against iOS 13.x simulator. The space character between "1" and "000" has changed
-        //XCTAssertEqual(frDecimalFormatter.string(from: NSNumber(value: 1000.25))!, "1 000,25")
+        //NOTE: There some cases when for different simulators it uses different characters for space like \u{202F} or \u{00A0}.
+        let value: String = "1"+frDecimalFormatter.groupingSeparator+"000,25"
+
+        XCTAssertEqual(frDecimalFormatter.string(from: NSNumber(value: 1000.25))!, value)
         XCTAssertEqual(frDecimalFormatter.string(from: NSNumber(value: 0.25)), "0,25")
     }
     func testInvalidStringInFr() {

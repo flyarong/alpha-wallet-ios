@@ -11,7 +11,7 @@ protocol TransactionViewControllerDelegate: class, CanOpenURL {
 class TransactionViewController: UIViewController {
     private lazy var viewModel: TransactionDetailsViewModel = {
         return .init(
-            transaction: transaction,
+            transactionRow: transactionRow,
             chainState: session.chainState,
             currentWallet: session.account,
             currencyRate: session.balanceCoordinator.currencyRate
@@ -21,17 +21,13 @@ class TransactionViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let buttonsBar = ButtonsBar(configuration: .green(buttons: 1))
     private let session: WalletSession
-    private let transaction: Transaction
+    private let transactionRow: TransactionRow
 
     weak var delegate: TransactionViewControllerDelegate?
 
-    init(
-        session: WalletSession,
-        transaction: Transaction,
-        delegate: TransactionViewControllerDelegate?
-    ) {
+    init(session: WalletSession, transactionRow: TransactionRow, delegate: TransactionViewControllerDelegate?) {
         self.session = session
-        self.transaction = transaction
+        self.transactionRow = transactionRow
         self.delegate = delegate
 
         super.init(nibName: nil, bundle: nil)
@@ -151,10 +147,7 @@ class TransactionViewController: UIViewController {
     }
 
     private func showFeedback() {
-        //TODO sound too
-        let feedbackGenerator = UINotificationFeedbackGenerator()
-        feedbackGenerator.prepare()
-        feedbackGenerator.notificationOccurred(.success)
+        UINotificationFeedbackGenerator.show(feedbackType: .success)
     }
 
     @objc func more() {
@@ -175,7 +168,7 @@ class TransactionViewController: UIViewController {
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 
     @objc func dismiss() {

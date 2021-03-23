@@ -5,21 +5,21 @@ import LocalAuthentication
 import BigInt
 import KeychainSwift
 import Result
-import TrustWalletCore
+import WalletCore
 import web3swift
 
 enum EtherKeystoreError: LocalizedError {
     case protectionDisabled
 }
 
-///We use ECDSA keys (created and stored in the Secure Enclave), achieving symmetric encryption based on Diffie-Hellman to encrypt the HD wallet seed and raw private keys and store the ciphertext in the keychain.
-///
-///There are 2 sets of (ECDSA key and ciphertext) for each Ethereum raw private key or HD wallet seed. 1 set is stored requiring user presence for access and the other doesn't. The second set is needed to ensure the user has does not lose access to the Ethereum raw private key (or HD wallet seed) when they delete their iOS passcode. Once the user has verified that they have backed up their wallet, they can choose to elevate the security of their wallet which deletes the set of (ECDSA key and ciphertext) that do not require user-presence.
-///
-///Technically, having 2 sets of (ECDSA key and ciphertext) for each Ethereum raw private key or HD wallet seed may not be required for iOS. But it is done:
-///(A) to be confident that we don't cause the user to lose access to their wallets and
-///(B) to be consistent with Android's UI and implementation which seems like users will lose access to the data (i.e wallet) which requires user presence if the equivalent of their iOS passcode/biometrics is disabled/deleted
 // swiftlint:disable type_body_length
+///We use ECDSA keys (created and stored in the Secure Enclave), achieving symmetric encryption based on Diffie-Hellman to encrypt the HD wallet seed and raw private keys and store the ciphertext in the keychain.
+//
+//There are 2 sets of (ECDSA key and ciphertext) for each Ethereum raw private key or HD wallet seed. 1 set is stored requiring user presence for access and the other doesn't. The second set is needed to ensure the user has does not lose access to the Ethereum raw private key (or HD wallet seed) when they delete their iOS passcode. Once the user has verified that they have backed up their wallet, they can choose to elevate the security of their wallet which deletes the set of (ECDSA key and ciphertext) that do not require user-presence.
+//
+//Technically, having 2 sets of (ECDSA key and ciphertext) for each Ethereum raw private key or HD wallet seed may not be required for iOS. But it is done:
+//(A) to be confident that we don't cause the user to lose access to their wallets and
+///(B) to be consistent with Android's UI and implementation which seems like users will lose access to the data (i.e wallet) which requires user presence if the equivalent of their iOS passcode/biometrics is disabled/deleted
 open class EtherKeystore: Keystore {
     private struct Keys {
         static let recentlyUsedAddress: String = "recentlyUsedAddress"
@@ -53,49 +53,45 @@ open class EtherKeystore: Keystore {
     private let defaultKeychainAccessUserPresenceNotRequired: KeychainSwiftAccessOptions = .accessibleWhenUnlockedThisDeviceOnly(userPresenceRequired: false)
     private let userDefaults: UserDefaults
     private var watchAddresses: [String] {
-        set {
-            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
-            return userDefaults.set(data, forKey: Keys.watchAddresses)
-        }
         get {
             guard let data = userDefaults.data(forKey: Keys.watchAddresses) else {
                 return []
             }
             return NSKeyedUnarchiver.unarchiveObject(with: data) as? [String] ?? []
         }
+        set {
+            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
+            return userDefaults.set(data, forKey: Keys.watchAddresses)
+        }
     }
 
     private var ethereumAddressesWithPrivateKeys: [String] {
-        set {
-            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
-            return userDefaults.set(data, forKey: Keys.ethereumAddressesWithPrivateKeys)
-        }
         get {
             guard let data = userDefaults.data(forKey: Keys.ethereumAddressesWithPrivateKeys) else {
                 return []
             }
             return NSKeyedUnarchiver.unarchiveObject(with: data) as? [String] ?? []
         }
+        set {
+            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
+            return userDefaults.set(data, forKey: Keys.ethereumAddressesWithPrivateKeys)
+        }
     }
 
     private var ethereumAddressesWithSeed: [String] {
-        set {
-            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
-            return userDefaults.set(data, forKey: Keys.ethereumAddressesWithSeed)
-        }
         get {
             guard let data = userDefaults.data(forKey: Keys.ethereumAddressesWithSeed) else {
                 return []
             }
             return NSKeyedUnarchiver.unarchiveObject(with: data) as? [String] ?? []
         }
+        set {
+            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
+            return userDefaults.set(data, forKey: Keys.ethereumAddressesWithSeed)
+        }
     }
 
     private var ethereumAddressesProtectedByUserPresence: [String] {
-        set {
-            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
-            return userDefaults.set(data, forKey: Keys.ethereumAddressesProtectedByUserPresence)
-        }
         get {
             guard let data = userDefaults.data(forKey: Keys.ethereumAddressesProtectedByUserPresence) else {
                 return []
@@ -103,9 +99,13 @@ open class EtherKeystore: Keystore {
 
             return NSKeyedUnarchiver.unarchiveObject(with: data) as? [String] ?? []
         }
+        set {
+            let data = NSKeyedArchiver.archivedData(withRootObject: newValue)
+            return userDefaults.set(data, forKey: Keys.ethereumAddressesProtectedByUserPresence)
+        }
     }
 
-    var analyticsCoordinator: AnalyticsCoordinator?
+    private var analyticsCoordinator: AnalyticsCoordinator
 
     //i.e if passcode is enabled. Face ID/Touch ID wouldn't work without passcode being enabled and we can't write to the keychain or generate a key in secure enclave when passcode is disabled
     var isUserPresenceCheckPossible: Bool {
@@ -129,9 +129,6 @@ open class EtherKeystore: Keystore {
     }
 
     var recentlyUsedWallet: Wallet? {
-        set {
-            keychain.set(newValue?.address.eip55String ?? "", forKey: Keys.recentlyUsedAddress, withAccess: defaultKeychainAccessUserPresenceNotRequired)
-        }
         //Use `currentWallet` wherever possible instead of this getter to avoid optionals
         get {
             guard let address = keychain.get(Keys.recentlyUsedAddress) else {
@@ -140,6 +137,9 @@ open class EtherKeystore: Keystore {
             return wallets.filter {
                 $0.address.sameContract(as: address)
             }.first
+        }
+        set {
+            keychain.set(newValue?.address.eip55String ?? "", forKey: Keys.recentlyUsedAddress, withAccess: defaultKeychainAccessUserPresenceNotRequired)
         }
     }
 
@@ -157,10 +157,10 @@ open class EtherKeystore: Keystore {
     //TODO improve
     static var currentWallet: Wallet {
         //Better crash now instead of populating callers with optionals
-        (try! EtherKeystore(analyticsCoordinator: nil)).currentWallet
+        (try! EtherKeystore(analyticsCoordinator: NoOpAnalyticsService())).currentWallet
     }
 
-    init(keychain: KeychainSwift = KeychainSwift(keyPrefix: Constants.keychainKeyPrefix), userDefaults: UserDefaults = .standard, analyticsCoordinator: AnalyticsCoordinator?) throws {
+    init(keychain: KeychainSwift = KeychainSwift(keyPrefix: Constants.keychainKeyPrefix), userDefaults: UserDefaults = .standard, analyticsCoordinator: AnalyticsCoordinator) throws {
         if !UIApplication.shared.isProtectedDataAvailable {
             throw EtherKeystoreError.protectionDisabled
         }
@@ -324,7 +324,7 @@ open class EtherKeystore: Keystore {
         let firstAccountIndex = UInt32(0)
         let externalChangeConstant = UInt32(0)
         let addressIndex = UInt32(0)
-        let privateKey = wallet.getKey(purpose: .bip44, coin: .ethereum, account: firstAccountIndex, change: externalChangeConstant, address: addressIndex)
+        let privateKey = wallet.getKeyBIP44(coin: .ethereum, account: firstAccountIndex, change: externalChangeConstant, address: addressIndex)
         return privateKey.data
     }
 
@@ -479,6 +479,10 @@ open class EtherKeystore: Keystore {
         }
     }
 
+    func signEip712TypedData(_ data: EIP712TypedData, for account: AlphaWallet.Address) -> Result<Data, KeystoreError> {
+        signHash(data.digest, for: account)
+    }
+
     func signTypedMessage(_ datas: [EthTypedData], for account: AlphaWallet.Address) -> Result<Data, KeystoreError> {
         let schemas = datas.map { $0.schemaData }.reduce(Data(), { $0 + $1 }).sha3(.keccak256)
         let values = datas.map { $0.typedData }.reduce(Data(), { $0 + $1 }).sha3(.keccak256)
@@ -545,14 +549,14 @@ open class EtherKeystore: Keystore {
         }
 
         do {
-            let hash = signer.hash(transaction: transaction)
+            let hash = try signer.hash(transaction: transaction)
             switch getPrivateKeyForSigning(forAccount: transaction.account) {
             case .seed, .seedPhrase:
                 return .failure(.failedToExportPrivateKey)
             case .key(let key):
                 let signature = try EthereumSigner().sign(hash: hash, withPrivateKey: key)
                 let (r, s, v) = signer.values(transaction: transaction, signature: signature)
-                let data = RLP.encode([
+                let values: [Any] = [
                     transaction.nonce,
                     transaction.gasPrice,
                     transaction.gasLimit,
@@ -560,7 +564,11 @@ open class EtherKeystore: Keystore {
                     transaction.value,
                     transaction.data,
                     v, r, s,
-                ])!
+                ]
+                //NOTE: avoid app crash, returns with return error, Happens when amount to send less then 0
+                guard let data = RLP.encode(values) else {
+                    return .failure(.failedToSignTransaction)
+                }
                 return .success(data)
             case .userCancelled:
                 return .failure(.userCancelled)

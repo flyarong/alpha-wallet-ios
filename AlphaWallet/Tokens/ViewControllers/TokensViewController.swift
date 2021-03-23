@@ -3,6 +3,7 @@
 import UIKit
 import Result
 import StatefulViewController
+import PromiseKit
 
 protocol TokensViewControllerDelegate: class {
     func didPressAddHideTokens(viewModel: TokensViewModel)
@@ -10,22 +11,24 @@ protocol TokensViewControllerDelegate: class {
     func didHide(token: TokenObject, in viewController: UIViewController)
     func didTapOpenConsole(in viewController: UIViewController)
     func scanQRCodeSelected(in viewController: UIViewController)
+    func walletConnectSelected(in viewController: UIViewController)
 }
 
 class TokensViewController: UIViewController {
     private static let filterViewHeight = DataEntry.Metric.Tokens.Filter.height
     private static let addHideTokensViewHeight = DataEntry.Metric.AddHideToken.Header.height
 
-    private enum Section: CaseIterable {
+    private enum Section {
         case filters
         case addHideToken
         case tokens
+        case activeWalletSession(count: Int)
     }
 
     private let tokenCollection: TokenCollection
     private let assetDefinitionStore: AssetDefinitionStore
     private let eventsDataStore: EventsDataStoreProtocol
-    private let sections: [Section] = Section.allCases
+    private var sections: [Section] = [.filters, .addHideToken, .tokens]
 
     private var viewModel: TokensViewModel {
         didSet {
@@ -44,6 +47,7 @@ class TokensViewController: UIViewController {
         tableView.register(NonFungibleTokenViewCell.self)
         tableView.registerHeaderFooterView(TableViewSectionHeader.self)
         tableView.registerHeaderFooterView(ShowAddHideTokensView.self)
+        tableView.registerHeaderFooterView(ActiveWalletSessionView.self)
         tableView.estimatedRowHeight = DataEntry.Metric.TableView.estimatedRowHeight
         tableView.delegate = self
         tableView.dataSource = self
@@ -89,6 +93,17 @@ class TokensViewController: UIViewController {
 
         return collectionView
     }()
+    private lazy var blockieImageView: BlockieImageView = {
+        let imageView = BlockieImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.clipsToBounds = true
+
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 24),
+            imageView.heightAnchor.constraint(equalToConstant: 24),
+        ])
+        return imageView
+    }()
     private var currentCollectiblesContractsDisplayed = [AlphaWallet.Address]()
     private let searchController: UISearchController
     private var consoleButton: UIButton {
@@ -104,7 +119,9 @@ class TokensViewController: UIViewController {
     private var isSearchBarConfigured = false
     private let hideTokenWidth: CGFloat = 170
     private var bottomConstraint: NSLayoutConstraint!
-    private lazy var keyboardChecker = KeyboardChecker(self, resetHeightDefaultValue: 0)
+    private lazy var keyboardChecker = KeyboardChecker(self, resetHeightDefaultValue: 0, ignoreBottomSafeArea: true)
+    private let config: Config
+    private let walletConnectCoordinator: WalletConnectCoordinator
 
     var isConsoleButtonHidden: Bool {
         get {
@@ -134,7 +151,7 @@ class TokensViewController: UIViewController {
             if listOfBadTokenScriptFiles.isEmpty {
                 isConsoleButtonHidden = true
             } else {
-                consoleButton.titleLabel?.font = Fonts.light(size: 22)!
+                consoleButton.titleLabel?.font = Fonts.light(size: 22)
                 consoleButton.setTitleColor(Colors.appWhite, for: .normal)
                 consoleButton.setTitle(R.string.localizable.tokenScriptShowErrors(), for: .normal)
                 consoleButton.bounds.size.height = 44
@@ -164,14 +181,19 @@ class TokensViewController: UIViewController {
          tokenCollection: TokenCollection,
          assetDefinitionStore: AssetDefinitionStore,
          eventsDataStore: EventsDataStoreProtocol,
-         filterTokensCoordinator: FilterTokensCoordinator
+         filterTokensCoordinator: FilterTokensCoordinator,
+         config: Config,
+         walletConnectCoordinator: WalletConnectCoordinator
     ) {
         self.sessions = sessions
         self.account = account
         self.tokenCollection = tokenCollection
         self.assetDefinitionStore = assetDefinitionStore
         self.eventsDataStore = eventsDataStore
-        self.viewModel = TokensViewModel(filterTokensCoordinator: filterTokensCoordinator, tokens: [], tickers: .init())
+        self.config = config
+        self.walletConnectCoordinator = walletConnectCoordinator
+
+        viewModel = TokensViewModel(filterTokensCoordinator: filterTokensCoordinator, tokens: [], tickers: .init())
         searchController = UISearchController(searchResultsController: nil)
 
         super.init(nibName: nil, bundle: nil)
@@ -206,29 +228,40 @@ class TokensViewController: UIViewController {
             self?.tokenCollection.fetch()
         })
         loadingView = LoadingView()
-        emptyView = EmptyView(
-            title: R.string.localizable.emptyViewNoTokensLabelTitle(),
-            onRetry: { [weak self] in
-                self?.startLoading()
-                self?.tokenCollection.fetch()
+        emptyView = EmptyView(title: R.string.localizable.emptyViewNoTokensLabelTitle(), onRetry: { [weak self] in
+            self?.startLoading()
+            self?.tokenCollection.fetch()
         })
+
         refreshView(viewModel: viewModel)
 
         setupFilteringWithKeyword()
 
         navigationItem.rightBarButtonItem = UIBarButtonItem.qrCodeBarButton(self, selector: #selector(scanQRCodeButtonSelected))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(customView: blockieImageView)
+
+        walletConnectCoordinator.sessionsToURLServersMap.subscribe { [weak self] value in
+            guard let strongSelf = self, let sessionsToURLServersMap = value else { return }
+            if sessionsToURLServersMap.sessions.isEmpty {
+                strongSelf.sections = [.filters, .addHideToken, .tokens]
+            } else {
+                strongSelf.sections = [.filters, .addHideToken, .activeWalletSession(count: sessionsToURLServersMap.sessions.count), .tokens]
+            }
+            strongSelf.tableView.reloadData()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
         navigationController?.applyTintAdjustment()
-        navigationController?.navigationBar.prefersLargeTitles = true
         hidesBottomBarWhenPushed = false
 
         fetch()
         fixNavigationBarAndStatusBarBackgroundColorForiOS13Dot1()
         keyboardChecker.viewWillAppear()
+        getWalletName()
+        getWalletBlockie()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -236,8 +269,28 @@ class TokensViewController: UIViewController {
         keyboardChecker.viewWillDisappear()
     }
 
-    @objc func scanQRCodeButtonSelected(_ sender: UIBarButtonItem) {
+    @objc private func scanQRCodeButtonSelected(_ sender: UIBarButtonItem) {
         delegate?.scanQRCodeSelected(in: self)
+    }
+
+    private func getWalletName() {
+        title = viewModel.walletDefaultTitle
+
+        firstly {
+            GetWalletNameCoordinator(config: config).getName(forAddress: account.address)
+        }.done { [weak self] name in
+            guard let strongSelf = self else { return }
+            strongSelf.navigationItem.title = name ?? strongSelf.viewModel.walletDefaultTitle
+        }.cauterize()
+    }
+
+    private func getWalletBlockie() {
+        let generator = BlockiesGenerator()
+        generator.promise(address: account.address).done { [weak self] value in
+            self?.blockieImageView.image = value
+        }.catch { [weak self] _ in
+            self?.blockieImageView.image = nil
+        }
     }
 
     @objc func pullToRefresh() {
@@ -287,7 +340,6 @@ class TokensViewController: UIViewController {
     }
 
     func refreshView(viewModel: TokensViewModel) {
-        title = viewModel.title
         view.backgroundColor = viewModel.backgroundColor
         tableView.backgroundColor = viewModel.backgroundColor
     }
@@ -359,6 +411,8 @@ extension TokensViewController: UITableViewDelegate {
             return TokensViewController.filterViewHeight
         case .addHideToken:
             return TokensViewController.addHideTokensViewHeight
+        case .activeWalletSession:
+            return 80
         case .tokens:
             return 0.01
         }
@@ -377,9 +431,22 @@ extension TokensViewController: UITableViewDelegate {
             header.configure()
 
             return header
+        case .activeWalletSession(let count):
+            let header: ActiveWalletSessionView = tableView.dequeueReusableHeaderFooterView()
+            header.configure(viewModel: .init(count: count))
+            header.delegate = self
+
+            return header
         case .tokens:
             return nil
         }
+    }
+}
+
+extension TokensViewController: ActiveWalletSessionViewDelegate {
+
+    func view(_ view: ActiveWalletSessionView, didSelectTap sender: UITapGestureRecognizer) {
+        delegate?.walletConnectSelected(in: self)
     }
 }
 
@@ -387,7 +454,7 @@ extension TokensViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch sections[indexPath.section] {
-        case .addHideToken, .filters:
+        case .addHideToken, .filters, .activeWalletSession:
             return UITableViewCell()
         case .tokens:
             let token = viewModel.item(for: indexPath.row, section: indexPath.section)
@@ -424,7 +491,7 @@ extension TokensViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch sections[section] {
-        case .addHideToken, .filters:
+        case .addHideToken, .filters, .activeWalletSession:
             return 0
         case .tokens:
             return viewModel.numberOfItems()
@@ -437,7 +504,7 @@ extension TokensViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         switch sections[indexPath.section] {
-        case .addHideToken, .filters:
+        case .addHideToken, .filters, .activeWalletSession:
             return nil
         case .tokens:
             return trailingSwipeActionsConfiguration(forRowAt: indexPath)

@@ -6,27 +6,29 @@ import BigInt
 import PromiseKit
 
 protocol TokenViewControllerDelegate: class, CanOpenURL {
-    func didTapErc20ExchangeOnUniswap(forTransferType transferType: TransferType, inViewController viewController: TokenViewController)
-    func didTapSend(forTransferType transferType: TransferType, inViewController viewController: TokenViewController)
-    func didTapReceive(forTransferType transferType: TransferType, inViewController viewController: TokenViewController)
-    func didTap(transaction: Transaction, inViewController viewController: TokenViewController)
-    func didTap(action: TokenInstanceAction, transferType: TransferType, viewController: TokenViewController)
+    func didTapSwap(forTransactionType transactionType: TransactionType, service: SwapTokenURLProviderType, inViewController viewController: TokenViewController)
+    func shouldOpen(url: URL, shouldSwitchServer: Bool, forTransactionType transactionType: TransactionType, inViewController viewController: TokenViewController)
+    func didTapSend(forTransactionType transactionType: TransactionType, inViewController viewController: TokenViewController)
+    func didTapReceive(forTransactionType transactionType: TransactionType, inViewController viewController: TokenViewController)
+    func didTap(transaction: TransactionInstance, inViewController viewController: TokenViewController)
+    func didTap(action: TokenInstanceAction, transactionType: TransactionType, viewController: TokenViewController)
 }
 
 class TokenViewController: UIViewController {
     private let headerViewRefreshInterval: TimeInterval = 5.0
     private let roundedBackground = RoundedBackground()
     lazy private var header = {
-        return TokenViewControllerHeaderView(contract: transferType.contract)
+        return TokenViewControllerHeaderView(contract: transactionType.contract)
     }()
-    lazy private var headerViewModel = SendHeaderViewViewModel(server: session.server, token: token, transferType: transferType)
+    lazy private var headerViewModel = SendHeaderViewViewModel(server: session.server, token: token, transactionType: transactionType)
     private var viewModel: TokenViewControllerViewModel?
     private var tokenHolder: TokenHolder?
     private let token: TokenObject
     private let session: WalletSession
     private let tokensDataStore: TokensDataStore
     private let assetDefinitionStore: AssetDefinitionStore
-    private let transferType: TransferType
+    private let transactionType: TransactionType
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let buttonsBar = ButtonsBar(configuration: .combined(buttons: 2))
     private lazy var tokenScriptFileStatusHandler = XMLHandler(token: token, assetDefinitionStore: assetDefinitionStore)
@@ -34,12 +36,13 @@ class TokenViewController: UIViewController {
 
     weak var delegate: TokenViewControllerDelegate?
 
-    init(session: WalletSession, tokensDataStore: TokensDataStore, assetDefinition: AssetDefinitionStore, transferType: TransferType, token: TokenObject) {
+    init(session: WalletSession, tokensDataStore: TokensDataStore, assetDefinition: AssetDefinitionStore, transactionType: TransactionType, analyticsCoordinator: AnalyticsCoordinator, token: TokenObject) {
         self.token = token
         self.session = session
         self.tokensDataStore = tokensDataStore
         self.assetDefinitionStore = assetDefinition
-        self.transferType = transferType
+        self.transactionType = transactionType
+        self.analyticsCoordinator = analyticsCoordinator
 
         super.init(nibName: nil, bundle: nil)
         hidesBottomBarWhenPushed = true
@@ -75,15 +78,11 @@ class TokenViewController: UIViewController {
             self?.refreshHeaderView()
         }
         RunLoop.main.add(headerRefreshTimer, forMode: .default)
+        navigationItem.largeTitleDisplayMode = .never
     }
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        navigationController?.navigationBar.prefersLargeTitles = false
     }
 
     override func viewDidLayoutSubviews() {
@@ -139,8 +138,8 @@ class TokenViewController: UIViewController {
             let label: UIBarButtonItem = .init(title: R.string.localizable.tokenScriptVerifying(), style: .plain, target: nil, action: nil)
             navigationItem.rightBarButtonItem = label
 
-            tokenScriptStatusPromise.done { _ in
-                self.updateNavigationRightBarButtons(tokenScriptFileStatusHandler: xmlHandler)
+            tokenScriptStatusPromise.done { [weak self] _ in
+                self?.updateNavigationRightBarButtons(tokenScriptFileStatusHandler: xmlHandler)
             }.cauterize()
         }
 
@@ -158,7 +157,7 @@ class TokenViewController: UIViewController {
     }
 
     private func configureBalanceViewModel() {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             session.balanceViewModel.subscribe { [weak self] viewModel in
                 guard let celf = self, let viewModel = viewModel else { return }
@@ -185,7 +184,7 @@ class TokenViewController: UIViewController {
             if let viewModel = self.viewModel {
                 configure(viewModel: viewModel)
             }
-        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             break
         }
 
@@ -193,15 +192,11 @@ class TokenViewController: UIViewController {
     }
 
     @objc private func send() {
-        delegate?.didTapSend(forTransferType: transferType, inViewController: self)
+        delegate?.didTapSend(forTransactionType: transactionType, inViewController: self)
     }
 
     @objc private func receive() {
-        delegate?.didTapReceive(forTransferType: transferType, inViewController: self)
-    }
-
-    @objc private func erc20ExchangeOnUniswap() {
-        delegate?.didTapErc20ExchangeOnUniswap(forTransferType: transferType, inViewController: self)
+        delegate?.didTapReceive(forTransactionType: transactionType, inViewController: self)
     }
 
     @objc private func actionButtonTapped(sender: UIButton) {
@@ -209,8 +204,8 @@ class TokenViewController: UIViewController {
         let actions = viewModel.actions
         for (action, button) in zip(actions, buttonsBar.buttons) where button == sender {
             switch action.type {
-            case .erc20ExchangeOnUniswap:
-                erc20ExchangeOnUniswap()
+            case .swap(let service):
+                delegate?.didTapSwap(forTransactionType: transactionType, service: service, inViewController: self)
             case .erc20Send:
                 send()
             case .erc20Receive:
@@ -232,8 +227,25 @@ class TokenViewController: UIViewController {
                         //no-op shouldn't have reached here since the button should be disabled. So just do nothing to be safe
                     }
                 } else {
-                    delegate?.didTap(action: action, transferType: transferType, viewController: self)
+                    delegate?.didTap(action: action, transactionType: transactionType, viewController: self)
                 }
+            case .xDaiBridge:
+                delegate?.shouldOpen(url: Constants.xDaiBridge, shouldSwitchServer: true, forTransactionType: transactionType, inViewController: self)
+            case .buy(let service):
+                var tokenObject: TokenObject?
+                switch transactionType {
+                case .nativeCryptocurrency(let token, _, _):
+                    tokenObject = token
+                case .ERC20Token(let token, _, _):
+                    tokenObject = token
+                case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
+                    tokenObject = .none
+                }
+
+                guard let token = tokenObject, let url = service.url(token: token) else { return }
+
+                logStartOnRamp(name: "Ramp")
+                delegate?.shouldOpen(url: url, shouldSwitchServer: false, forTransactionType: transactionType, inViewController: self)
             }
             break
         }
@@ -256,7 +268,7 @@ class TokenViewController: UIViewController {
         } else {
             for each in subscribablesForAttributeValues {
                 guard let subscribable = each.subscribableValue else { continue }
-                subscribable.subscribe { [weak self] value in
+                subscribable.subscribe { [weak self] _ in
                     guard let strongSelf = self else { return }
                     guard let viewModel = strongSelf.viewModel else { return }
                     strongSelf.configure(viewModel: viewModel)
@@ -322,5 +334,12 @@ extension TokenViewController: TokenViewControllerHeaderViewDelegate {
     @objc private func refreshHeaderView() {
         headerViewModel.isShowingValue.toggle()
         header.sendHeaderView.configure(viewModel: headerViewModel)
+    }
+}
+
+//MARK: Analytics
+extension TokenViewController {
+    private func logStartOnRamp(name: String) {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.onRamp, properties: [Analytics.Properties.name.rawValue: name])
     }
 }

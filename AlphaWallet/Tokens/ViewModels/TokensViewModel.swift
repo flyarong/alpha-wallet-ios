@@ -26,7 +26,7 @@ class TokensViewModel {
         return .white
     }
 
-    var title: String {
+    var walletDefaultTitle: String {
         return R.string.localizable.walletTokensTabbarItemTitle()
     }
 
@@ -77,7 +77,7 @@ class TokensViewModel {
         }
         return true
     }
-
+    
     init(filterTokensCoordinator: FilterTokensCoordinator, tokens: [TokenObject], tickers: [RPCServer: [AlphaWallet.Address: CoinTicker]]) {
         self.filterTokensCoordinator = filterTokensCoordinator
         self.tokens = tokens

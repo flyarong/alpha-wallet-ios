@@ -23,19 +23,26 @@ class KeyboardChecker: NSObject {
     private let notificationCenter = NotificationCenter.default
     private let resetHeightDefaultValue: CGFloat
     var constraint: NSLayoutConstraint?
+    //NOTE: for views with input veiw like date picker, seems like we need to ignore bottom safe area
+    private let ignoreBottomSafeArea: Bool
 
-    init(_ viewController: UIViewController, resetHeightDefaultValue: CGFloat = -UIApplication.shared.bottomSafeAreaHeight) {
+    init(_ viewController: UIViewController, resetHeightDefaultValue: CGFloat = -UIApplication.shared.bottomSafeAreaHeight, ignoreBottomSafeArea: Bool = false) {
         self.viewController = viewController
         self.resetHeightDefaultValue = resetHeightDefaultValue
+        self.ignoreBottomSafeArea = ignoreBottomSafeArea
         super.init()
+
+        //NOTE: while protection has turned on, we want to sunscribe/unsubscribe from handling keyboard appearence, to prevent bottom inset
+        notificationCenter.addObserver(self, selector: #selector(viewWillDisappear), name: UIApplication.willResignActiveNotification, object: nil)
+        notificationCenter.addObserver(self, selector: #selector(viewWillAppear), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    func viewWillAppear() {
+    @objc func viewWillAppear() {
         notificationCenter.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
         notificationCenter.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    func viewWillDisappear() {
+    @objc func viewWillDisappear() {
         notificationCenter.removeObserver(self)
     }
 
@@ -55,10 +62,14 @@ class KeyboardChecker: NSObject {
         if diff > yKeyboardFrameOffset {
             constraint?.constant = -(keyboardEndFrame.height - tabBarHeight)
         } else {
-            if UIApplication.shared.bottomSafeAreaHeight > 0.0 {
-                constraint?.constant = -(diff + UIApplication.shared.bottomSafeAreaHeight)
-            } else {
+            if ignoreBottomSafeArea {
                 constraint?.constant = -(keyboardEndFrame.height - tabBarHeight)
+            } else {
+                if UIApplication.shared.bottomSafeAreaHeight > 0.0 {
+                    constraint?.constant = -(diff + UIApplication.shared.bottomSafeAreaHeight)
+                } else {
+                    constraint?.constant = -(keyboardEndFrame.height - tabBarHeight)
+                }
             }
         }
 

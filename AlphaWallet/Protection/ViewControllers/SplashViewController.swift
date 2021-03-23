@@ -3,33 +3,19 @@
 import Foundation
 import UIKit
 
-class SplashViewController: UIViewController {
+private var splashViewController: UIViewController?
 
-    init() {
-        super.init(nibName: nil, bundle: nil)
+func SplashViewController() -> UIViewController {
+    if let value = splashViewController {
+        return value
+    } else {
+        splashViewController = UIStoryboard(name: "LaunchScreen", bundle: nil).instantiateInitialViewController()
     }
+    return splashViewController!
+}
 
-    required init?(coder aDecoder: NSCoder) {
-        return nil
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        if let controller = UIStoryboard(name: "LaunchScreen", bundle: nil).instantiateInitialViewController() {
-            addChild(controller)
-
-            view.addSubview(controller.view)
-            view.translatesAutoresizingMaskIntoConstraints = false
-
-            NSLayoutConstraint.activate([
-                controller.view.topAnchor.constraint(equalTo: view.topAnchor),
-                controller.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                controller.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                controller.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ])
-            
-            controller.didMove(toParent: self)
-        }
+extension UIViewController {
+    var isSplashScreen: Bool {
+        self == SplashViewController()
     }
 }

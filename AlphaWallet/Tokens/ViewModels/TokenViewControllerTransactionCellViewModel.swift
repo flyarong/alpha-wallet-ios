@@ -4,18 +4,18 @@ import Foundation
 import UIKit
 
 struct TokenViewControllerTransactionCellViewModel {
-    private let transaction: Transaction
+    private let transaction: TransactionInstance
     private let transactionViewModel: TransactionViewModel
 
     init(
-            transaction: Transaction,
+            transaction: TransactionInstance,
             config: Config,
             chainState: ChainState,
             currentWallet: Wallet
     ) {
         self.transaction = transaction
         self.transactionViewModel = TransactionViewModel(
-                transaction: transaction,
+                transactionRow: .standalone(transaction),
                 chainState: chainState,
                 currentWallet: currentWallet
         )
@@ -36,7 +36,7 @@ struct TokenViewControllerTransactionCellViewModel {
         return NSAttributedString(
                 string: amount,
                 attributes: [
-                    .font: Fonts.semibold(size: 17)!,
+                    .font: Fonts.semibold(size: 17),
                     .foregroundColor: transactionViewModel.amountTextColor,
                 ]
         )

@@ -22,11 +22,7 @@ struct DefaultActivityViewModel {
         Colors.appBackground
     }
 
-    var amountFont: UIFont {
-        Fonts.regular(size: 28)!
-    }
-
-    var amount: String {
+    var amount: NSAttributedString {
         let sign: String
         switch activity.nativeViewType {
         case .erc20Sent, .nativeCryptoSent:
@@ -39,27 +35,52 @@ struct DefaultActivityViewModel {
             sign = ""
         }
 
+        let string: String
         switch activity.nativeViewType {
-        case .erc20Sent, .erc20Received, .erc20OwnerApproved, .erc20ApprovalObtained, .nativeCryptoSent, .nativeCryptoReceived:
+        case .erc20Sent, .erc20Received, .nativeCryptoSent, .nativeCryptoReceived:
             if let value = cardAttributes["amount"]?.uintValue {
-                let formatter = EtherNumberFormatter.short
-                let value = formatter.string(from: BigInt(value))
-                return "\(sign)\(value) \(activity.tokenObject.symbol)"
+                string = stringFromFungibleAmount(sign: sign, amount: value)
             } else {
-                return ""
+                string = ""
+            }
+        case .erc20OwnerApproved, .erc20ApprovalObtained:
+            if let value = cardAttributes["amount"]?.uintValue {
+                if doesApprovedAmountLookReallyBig(value, decimals: activity.tokenObject.decimals) {
+                    string = R.string.localizable.activityApproveAmountAll(activity.tokenObject.symbol)
+                } else {
+                    string = stringFromFungibleAmount(sign: sign, amount: value)
+                }
+            } else {
+                string = ""
             }
         case .erc721Sent, .erc721Received, .erc721OwnerApproved, .erc721ApprovalObtained:
             if let value = cardAttributes["tokenId"]?.uintValue {
-                return "\(value)"
+                string = "\(value)"
             } else {
-                return ""
+                string = ""
             }
         case .none:
-            return ""
+            string = ""
+        }
+
+        switch activity.state {
+        case .pending:
+            return NSAttributedString(string: string, attributes: [.font: Fonts.regular(size: 28), .foregroundColor: R.color.black()!])
+        case .completed:
+            return NSAttributedString(string: string, attributes: [.font: Fonts.regular(size: 28), .foregroundColor: R.color.black()!])
+        case .failed:
+            return NSAttributedString(string: string, attributes: [.font: Fonts.regular(size: 28), .foregroundColor: R.color.silver()!, .strikethroughStyle: NSUnderlineStyle.single.rawValue])
         }
     }
 
-    var amountColor: UIColor {
-        R.color.black()!
+    private func stringFromFungibleAmount(sign: String, amount: BigUInt) -> String {
+        let formatter = EtherNumberFormatter.short
+        let value = formatter.string(from: BigInt(amount), decimals: activity.tokenObject.decimals)
+        return "\(sign)\(value) \(activity.tokenObject.symbol)"
+    }
+
+    private func doesApprovedAmountLookReallyBig(_ amount: BigUInt, decimals: Int) -> Bool {
+        let empiricallyBigLimit: Double = 90_000_000
+        return Double(amount) / pow(10, activity.tokenObject.decimals).doubleValue > empiricallyBigLimit
     }
 }

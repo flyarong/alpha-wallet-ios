@@ -3,7 +3,7 @@
 import Foundation
 import UIKit
 
-protocol PromptBackupWalletViewViewModel {
+protocol PromptBackupWalletViewModel {
     var backgroundColor: UIColor { get }
     var cornerRadius: CGFloat { get }
     var titleFont: UIFont { get }
@@ -23,13 +23,13 @@ protocol PromptBackupWalletViewViewModel {
     var walletAddress: AlphaWallet.Address { get }
 }
 
-extension PromptBackupWalletViewViewModel {
+extension PromptBackupWalletViewModel {
     var cornerRadius: CGFloat {
         return Metrics.CornerRadius.box
     }
 
     var titleFont: UIFont {
-        return Fonts.regular(size: 22)!
+        return Fonts.regular(size: 22)
     }
 
     var titleColor: UIColor {
@@ -37,7 +37,7 @@ extension PromptBackupWalletViewViewModel {
     }
 
     var descriptionFont: UIFont {
-        return Fonts.regular(size: 13)!
+        return Fonts.regular(size: 13)
     }
 
     var descriptionColor: UIColor {
@@ -49,7 +49,7 @@ extension PromptBackupWalletViewViewModel {
     }
 
     var backupButtonTitleFont: UIFont {
-        return Fonts.semibold(size: 16)!
+        return Fonts.semibold(size: 16)
     }
 
     var backupButtonImage: UIImage {

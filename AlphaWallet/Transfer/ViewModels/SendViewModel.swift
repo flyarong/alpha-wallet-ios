@@ -8,16 +8,16 @@ struct SendViewModel {
     private let session: WalletSession
     private let storage: TokensDataStore
 
-    let transferType: TransferType
+    let transactionType: TransactionType
 
-    init(transferType: TransferType, session: WalletSession, storage: TokensDataStore) {
-        self.transferType = transferType
+    init(transactionType: TransactionType, session: WalletSession, storage: TokensDataStore) {
+        self.transactionType = transactionType
         self.session = session
         self.storage = storage
     }
 
     var destinationAddress: AlphaWallet.Address {
-        return transferType.contract
+        return transactionType.contract
     }
 
     var backgroundColor: UIColor {
@@ -25,7 +25,7 @@ struct SendViewModel {
     }
 
     var token: TokenObject? {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             return nil
         case .ERC20Token(let token, _, _):
@@ -38,7 +38,7 @@ struct SendViewModel {
             return token
         case .ERC721ForTicketToken(let token):
             return token
-        case .dapp:
+        case .dapp, .tokenScript, .claimPaidErc875MagicLink:
             return nil
         }
     }
@@ -47,11 +47,11 @@ struct SendViewModel {
         return Colors.appGrayLabel
     }
     var textFieldsLabelFont: UIFont {
-        return Fonts.regular(size: 10)!
+        return Fonts.regular(size: 10)
     }
 
     var recipientLabelFont: UIFont {
-        return Fonts.regular(size: 13)!
+        return Fonts.regular(size: 13)
     }
 
     var recepientLabelTextColor: UIColor {
@@ -63,41 +63,41 @@ struct SendViewModel {
     }
 
     var amountTextFieldPair: AmountTextField.Pair {
-        return AmountTextField.Pair(left: .cryptoCurrency(transferType.tokenObject), right: .usd)
+        return AmountTextField.Pair(left: .cryptoCurrency(transactionType.tokenObject), right: .usd)
     }
 
     var selectCurrencyButtonHidden: Bool {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             guard let currentTokenInfo = storage.tickers?[destinationAddress], currentTokenInfo.price_usd > 0 else {
                 return true
             }
             return false
-        case .ERC20Token, .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+        case .ERC20Token, .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             return true
         }
     }
 
     var currencyButtonHidden: Bool {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency, .ERC20Token:
             return false
-        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             return true
         }
     }
 
     var availableLabelText: String? {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             if let balance = session.balance {
-                let value = EtherNumberFormatter.plain.string(from: balance.value)
-                return R.string.localizable.sendAvailable("\(value) \(transferType.symbol)")
+                let value = EtherNumberFormatter.short.string(from: balance.value)
+                return R.string.localizable.sendAvailable("\(value) \(transactionType.symbol)")
             }
         case .ERC20Token(let token, _, _):
-            let value = EtherNumberFormatter.plain.string(from: token.valueBigInt, decimals: token.decimals)
-            return R.string.localizable.sendAvailable("\(value) \(transferType.symbol)")
-        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder:
+            let value = EtherNumberFormatter.short.string(from: token.valueBigInt, decimals: token.decimals)
+            return R.string.localizable.sendAvailable("\(value) \(transactionType.symbol)")
+        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder, .tokenScript, .claimPaidErc875MagicLink:
             break
         }
 
@@ -105,13 +105,13 @@ struct SendViewModel {
     }
 
     var availableTextHidden: Bool {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             return session.balance == nil
         case .ERC20Token(let token, _, _):
             let tokenBalance = storage.token(forContract: token.contractAddress)?.valueBigInt
             return tokenBalance == nil
-        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder:
+        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder, .tokenScript, .claimPaidErc875MagicLink:
             break
         }
         return true
@@ -119,8 +119,8 @@ struct SendViewModel {
 
     func validatedAmount(value amountString: String, checkIfGreaterThanZero: Bool = true) -> BigInt? {
         let parsedValue: BigInt? = {
-            switch transferType {
-            case .nativeCryptocurrency, .dapp:
+            switch transactionType {
+            case .nativeCryptocurrency, .dapp, .tokenScript, .claimPaidErc875MagicLink:
                 return EtherNumberFormatter.full.number(from: amountString, units: .ether)
             case .ERC20Token(let token, _, _):
                 return EtherNumberFormatter.full.number(from: amountString, decimals: token.decimals)
@@ -139,7 +139,7 @@ struct SendViewModel {
             return nil
         }
 
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             if let balance = session.balance, balance.value < value {
                 return nil
@@ -148,7 +148,7 @@ struct SendViewModel {
             if let tokenBalance = storage.token(forContract: token.contractAddress)?.valueBigInt, tokenBalance < value {
                 return nil
             }
-        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder:
+        case .dapp, .ERC721ForTicketToken, .ERC721Token, .ERC875Token, .ERC875TokenOrder, .tokenScript, .claimPaidErc875MagicLink:
             break
         }
 

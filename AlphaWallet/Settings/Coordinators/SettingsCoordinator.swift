@@ -4,13 +4,19 @@
 import Foundation
 import UIKit
 
+enum RestartReason {
+    case walletChange
+    case changeLocalization
+    case serverChange
+}
+
 protocol SettingsCoordinatorDelegate: class, CanOpenURL {
-	func didRestart(with account: Wallet, in coordinator: SettingsCoordinator)
+    func didRestart(with account: Wallet, in coordinator: SettingsCoordinator, reason: RestartReason)
 	func didUpdateAccounts(in coordinator: SettingsCoordinator)
 	func didCancel(in coordinator: SettingsCoordinator)
 	func didPressShowWallet(in coordinator: SettingsCoordinator)
 	func assetDefinitionsOverrideViewController(for: SettingsCoordinator) -> UIViewController?
-	func consoleViewController(for: SettingsCoordinator) -> UIViewController?
+    func showConsole(in coordinator: SettingsCoordinator)
 	func delete(account: Wallet, in coordinator: SettingsCoordinator)
 }
 
@@ -19,8 +25,8 @@ class SettingsCoordinator: Coordinator {
 	private var config: Config
 	private let sessions: ServerDictionary<WalletSession>
     private let promptBackupCoordinator: PromptBackupCoordinator
-	private let analyticsCoordinator: AnalyticsCoordinator?
-
+	private let analyticsCoordinator: AnalyticsCoordinator
+    private let walletConnectCoordinator: WalletConnectCoordinator
 	private var account: Wallet {
 		return sessions.anyValue.account
 	}
@@ -44,12 +50,13 @@ class SettingsCoordinator: Coordinator {
     }()
 
 	init(
-			navigationController: UINavigationController = UINavigationController(),
-			keystore: Keystore,
-			config: Config,
-			sessions: ServerDictionary<WalletSession>,
-			promptBackupCoordinator: PromptBackupCoordinator,
-			analyticsCoordinator: AnalyticsCoordinator?
+        navigationController: UINavigationController = UINavigationController(),
+        keystore: Keystore,
+        config: Config,
+        sessions: ServerDictionary<WalletSession>,
+        promptBackupCoordinator: PromptBackupCoordinator,
+        analyticsCoordinator: AnalyticsCoordinator,
+        walletConnectCoordinator: WalletConnectCoordinator
 	) {
 		self.navigationController = navigationController
 		self.navigationController.modalPresentationStyle = .formSheet
@@ -58,6 +65,7 @@ class SettingsCoordinator: Coordinator {
 		self.sessions = sessions
         self.promptBackupCoordinator = promptBackupCoordinator
 		self.analyticsCoordinator = analyticsCoordinator
+        self.walletConnectCoordinator = walletConnectCoordinator
 		promptBackupCoordinator.subtlePromptDelegate = self
 	}
 
@@ -65,8 +73,8 @@ class SettingsCoordinator: Coordinator {
 		navigationController.viewControllers = [rootViewController]
 	}
 
-	func restart(for wallet: Wallet) {
-		delegate?.didRestart(with: wallet, in: self)
+    func restart(for wallet: Wallet, reason: RestartReason) {
+		delegate?.didRestart(with: wallet, in: self, reason: reason)
 	}
 }
 
@@ -75,6 +83,22 @@ extension SettingsCoordinator: SupportViewControllerDelegate {
 }
 
 extension SettingsCoordinator: SettingsViewControllerDelegate {
+    
+    func settingsViewControllerWalletConnectSelected(in controller: SettingsViewController) {
+        walletConnectCoordinator.showSessions()
+    }
+
+    func settingsViewControllerShowSeedPhraseSelected(in controller: SettingsViewController) {
+        switch account.type {
+        case .real(let account):
+            let coordinator = ShowSeedPhraseCoordinator(navigationController: navigationController, keystore: keystore, account: account)
+            coordinator.delegate = self
+            coordinator.start()
+            addCoordinator(coordinator)
+        case .watch:
+            break
+        }
+    }
 
     func settingsViewControllerHelpSelected(in controller: SettingsViewController) {
         let viewController = SupportViewController()
@@ -131,6 +155,12 @@ extension SettingsCoordinator: SettingsViewControllerDelegate {
     }
 }
 
+extension SettingsCoordinator: ShowSeedPhraseCoordinatorDelegate {
+    func didCancel(in coordinator: ShowSeedPhraseCoordinator) {
+        removeCoordinator(coordinator)
+    }
+}
+
 extension SettingsCoordinator: CanOpenURL {
 	func didPressViewContractWebPage(forContract contract: AlphaWallet.Address, server: RPCServer, in viewController: UIViewController) {
 		delegate?.didPressViewContractWebPage(forContract: contract, server: server, in: viewController)
@@ -169,7 +199,7 @@ extension SettingsCoordinator: AccountsCoordinatorDelegate {
 	func didSelectAccount(account: Wallet, in coordinator: AccountsCoordinator) {
         coordinator.navigationController.popViewController(animated: true)
 		removeCoordinator(coordinator)
-		restart(for: account)
+        restart(for: account, reason: .walletChange)
 	}
 }
 
@@ -177,7 +207,7 @@ extension SettingsCoordinator: LocalesCoordinatorDelegate {
     func didSelect(locale: AppLocale, in coordinator: LocalesCoordinator) {
 		coordinator.localesViewController.navigationController?.popViewController(animated: true)
 		removeCoordinator(coordinator)
-		restart(for: account)
+        restart(for: account, reason: .changeLocalization)
 	}
 }
 
@@ -192,7 +222,7 @@ extension SettingsCoordinator: EnabledServersCoordinatorDelegate {
 			removeCoordinator(coordinator)
 		} else {
 			config.enabledServers = servers
-			restart(for: account)
+            restart(for: account, reason: .serverChange)
 		}
 	}
 
@@ -227,10 +257,7 @@ extension SettingsCoordinator: BackupCoordinatorDelegate {
 extension SettingsCoordinator: AdvancedSettingsViewControllerDelegate {
 
     func advancedSettingsViewControllerConsoleSelected(in controller: AdvancedSettingsViewController) {
-        guard let controller = delegate?.consoleViewController(for: self) else { return }
-        controller.navigationItem.largeTitleDisplayMode = .never
-
-        navigationController.pushViewController(controller, animated: true)
+        delegate?.showConsole(in: self)
     }
 
     func advancedSettingsViewControllerClearBrowserCacheSelected(in controller: AdvancedSettingsViewController) {

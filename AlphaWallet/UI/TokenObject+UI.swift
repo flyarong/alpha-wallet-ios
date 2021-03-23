@@ -74,31 +74,35 @@ private class TokenImageFetcher {
             subscribable.value = programmaticallyGenerateIcon(forToken: tokenObject)
             return subscribable
         }
+        
+        let githubAssetsSource = tokenObject.server.githubAssetsSource
+        let contractAddress = tokenObject.contractAddress
+        let balance = tokenObject.balance.first?.balance
+        let generatedImage = programmaticallyGenerateIcon(forToken: tokenObject)
 
-        fetchFromOpenSea(tokenObject).done {
+        fetchFromOpenSea(tokenObject.type, balance: balance).done {
             subscribable.value = (image: $0, symbol: "")
         }.catch { [weak self] _ in
             guard let strongSelf = self else { return }
-            strongSelf.fetchFromAssetGitHubRepo(tokenObject).done {
+            strongSelf.fetchFromAssetGitHubRepo(githubAssetsSource, contractAddress: contractAddress).done {
                 subscribable.value = (image: $0, symbol: "")
-            }.catch { [weak self] _ in
-                guard let strongSelf = self else { return }
-                subscribable.value = strongSelf.programmaticallyGenerateIcon(forToken: tokenObject)
+            }.catch { _ in
+                subscribable.value = generatedImage
             }
         }
 
         return subscribable
     }
 
-    private func fetchFromOpenSea(_ tokenObject: TokenObject) -> Promise<UIImage> {
+    private func fetchFromOpenSea(_ type: TokenType, balance: String?) -> Promise<UIImage> {
         Promise { seal in
-            switch tokenObject.type {
+            switch type {
             case .erc721:
-                if let json = tokenObject.balance.first?.balance, let data = json.data(using: .utf8), let openSeaNonFungible = try? JSONDecoder().decode(OpenSeaNonFungible.self, from: data), !openSeaNonFungible.contractImageUrl.isEmpty {
+                if let json = balance, let data = json.data(using: .utf8), let openSeaNonFungible = try? JSONDecoder().decode(OpenSeaNonFungible.self, from: data), !openSeaNonFungible.contractImageUrl.isEmpty {
                     let request = URLRequest(url: URL(string: openSeaNonFungible.contractImageUrl)!)
                     fetch(request: request).done { image in
                         seal.fulfill(image)
-                    }.catch { error in
+                    }.catch { _ in
                         seal.reject(ImageAvailabilityError.notAvailable)
                     }
                 }
@@ -108,15 +112,15 @@ private class TokenImageFetcher {
         }
     }
 
-    private func fetchFromAssetGitHubRepo(_ tokenObject: TokenObject) -> Promise<UIImage> {
-        return GithubAssetsURLResolver().resolve(for: tokenObject).then { request -> Promise<UIImage> in
+    private func fetchFromAssetGitHubRepo(_ githubAssetsSource: GithubAssetsURLResolver.Source, contractAddress: AlphaWallet.Address) -> Promise<UIImage> {
+        return GithubAssetsURLResolver().resolve(for: githubAssetsSource, contractAddress: contractAddress).then { request -> Promise<UIImage> in
             self.fetch(request: request)
         }
     }
 
     private func fetch(request: URLRequest) -> Promise<UIImage> {
         Promise { seal in
-            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            let task = URLSession.shared.dataTask(with: request) { data, _, _ in
                 if let data = data {
                     let image = UIImage(data: data)
                     if let img = image {
@@ -145,8 +149,8 @@ class GithubAssetsURLResolver {
         case case1
     }
 
-    func resolve(for tokenObject: TokenObject) -> Promise<URLRequest> {
-        let value = tokenObject.server.githubAssetsSource.rawValue + tokenObject.contractAddress.eip55String + "/" + GithubAssetsURLResolver.file
+    func resolve(for githubAssetsSource: GithubAssetsURLResolver.Source, contractAddress: AlphaWallet.Address) -> Promise<URLRequest> {
+        let value = githubAssetsSource.rawValue + contractAddress.eip55String + "/" + GithubAssetsURLResolver.file
 
         guard let url = URL(string: value) else {
             return .init(error: AnyError.case1)
@@ -162,7 +166,7 @@ fileprivate extension RPCServer {
         switch self {
         case .rinkeby, .ropsten, .sokol, .kovan, .goerli:
             return .testNetTokensSource
-        case .main, .poa, .classic, .callisto, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom:
+        case .main, .poa, .classic, .callisto, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
             return .allTokensSource
         }
     }

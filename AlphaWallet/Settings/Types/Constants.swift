@@ -25,7 +25,15 @@ public struct Constants {
     public static let artisTau1MagicLinkHost = "artis_tau1.aw.app"
     public static let binanceMagicLinkHost = "binance.aw.app"
     public static let binanceTestMagicLinkHost = "test-binance.aw.app"
+    public static let hecoMagicLinkHost = "heco.aw.app"
+    public static let hecoTestMagicLinkHost = "test-heco.aw.app"
     public static let customMagicLinkHost = "custom.aw.app"
+    public static let fantomMagicLinkHost = "fantom.aw.app"
+    public static let fantomTestMagicLinkHost = "test-fantom.aw.app"
+    public static let avalancheMagicLinkHost = "avalanche.aw.app"
+    public static let avalancheTestMagicLinkHost = "test-avalanche.aw.app"
+    public static let maticMagicLinkHost = "polygon.aw.app"
+    public static let mumbaiTestMagicLinkHost = "test-polygon.aw.app"
 
     public enum Currency {
         static let usd = "USD"
@@ -108,8 +116,16 @@ public struct Constants {
     public static let callistoContractPage = "https://blockscout.com/callisto/mainnet/search?q="
     public static let artisSigma1ContractPage = "https://explorer.sigma1.artis.network/search?q="
     public static let artisTau1ContractPage = "https://explorer.tau1.artis.network/search?q="
-    public static let binanceContractPage = "https://explorer.binance.org/smart/search?q="
-    public static let binanceTestnetContractPage = "https://explorer.binance.org/smart-testnet/search?q="
+    public static let binanceContractPage = "https://bscscan.com/search?q="
+    public static let binanceTestnetContractPage = "https://testnet.bscscan.com/search?q="
+    public static let hecoContractPage = "https://scan.hecochain.com/address/"
+    public static let hecoTestnetContractPage = "https://scan-testnet.hecochain.com/address/"
+    public static let fantomContractPage = "https://ftmscan.com/address/"
+    public static let fantomTestnetContractPage = "https://ftmscan.com/address/"
+    public static let avalancheContractPage = "https://cchain.explorer.avax.network/address/"
+    public static let avalancheTestnetContractPage = "https://cchain.explorer.avax-test.network/address/"
+    public static let maticContractPage = "https://explorer-mainnet.maticvigil.com/address/"
+    public static let mumbaiContractPage = "https://explorer-mumbai.maticvigil.com/address/"
 
     //OpenSea links for erc721 assets
     public static let openseaAPI = "https://api.opensea.io/"
@@ -118,11 +134,23 @@ public struct Constants {
     //Using "kat" instead of "cryptokitties" to avoid being mistakenly detected by app review as supporting CryptoKitties
     public static let katContractAddress = "0x06012c8cf97bead5deae237070f9587f8e7a266d"
 
+    //xDai dapps
+    static let xDaiBridge = URL(string: "https://bridge.xdaichain.com/")!
+    private static let rampApiKey = "j5wr7oqktym7z69yyf84bb8a6cqb7qfu5ynmeyvn"
+    static let buyXDaiWitRampUrl = "https://buy.ramp.network/?hostApiKey=\(rampApiKey)&hostLogoUrl=https%3A%2F%2Falphawallet.com%2Fwp-content%2Fthemes%2Falphawallet%2Fimg%2Falphawallet-logo.svg&hostAppName=AlphaWallet&swapAsset=xDai"
+
+    static func buyWitRampUrl(asset: String) -> String {
+        "https://buy.ramp.network/?hostApiKey=\(rampApiKey)&hostLogoUrl=https%3A%2F%2Falphawallet.com%2Fwp-content%2Fthemes%2Falphawallet%2Fimg%2Falphawallet-logo.svg&hostAppName=AlphaWallet&swapAsset=\(asset)"
+    }
+
     //ENS
     static let ENSRegistrarAddress = AlphaWallet.Address(string: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e")!
     static let ENSRegistrarRopsten = ENSRegistrarAddress
     static let ENSRegistrarRinkeby = ENSRegistrarAddress
     static let ENSRegistrarGoerli = ENSRegistrarAddress
+
+    static let gasNowEndpointBaseUrl = "https://www.gasnow.org"
+    static let highStandardGasThresholdGwei = BigInt(55)
 
     //Misc
     public static let etherReceivedNotificationIdentifier = "etherReceivedNotificationIdentifier"
@@ -186,6 +214,8 @@ public struct Constants {
     static let rinkebyPartnerContracts = [
         (name: "HKS", contract: AlphaWallet.Address(string: "0x75cB2Cc380d1387a79eE64b1b7C9Fa051139a319")!),
     ]
+
+    static let ensContractOnMainnet = AlphaWallet.Address.ethereumAddress(eip55String: "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85")
 
     static let defaultEnabledServers: [RPCServer] = [.main, .xDai]
 

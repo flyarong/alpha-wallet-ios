@@ -1,14 +1,19 @@
 // Copyright DApps Platform Inc. All rights reserved.
 
-import Foundation
 import UIKit
-import BigInt
-import RealmSwift
 import WebKit
+import APIKit
+import BigInt
+import JSONRPCKit
+import PromiseKit
+import RealmSwift
+import Result
 
 protocol DappBrowserCoordinatorDelegate: class {
     func didSentTransaction(transaction: SentTransaction, inCoordinator coordinator: DappBrowserCoordinator)
     func importUniversalLink(url: URL, forCoordinator coordinator: DappBrowserCoordinator)
+    func handleUniversalLink(_ url: URL, forCoordinator coordinator: DappBrowserCoordinator)
+    func handleCustomUrlScheme(_ url: URL, forCoordinator coordinator: DappBrowserCoordinator)
 }
 
 final class DappBrowserCoordinator: NSObject, Coordinator {
@@ -18,7 +23,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     private let sessions: ServerDictionary<WalletSession>
     private let keystore: Keystore
     private let config: Config
-
+    private let analyticsCoordinator: AnalyticsCoordinator
     private var browserNavBar: DappBrowserNavigationBar? {
         return navigationController.navigationBar as? DappBrowserNavigationBar
     }
@@ -39,18 +44,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
 
     private let sharedRealm: Realm
     private let browserOnly: Bool
-
-    private var nativeCryptoCurrencyBalanceView: NativeCryptoCurrencyBalanceView {
-        //Not the best implementation. Hopefully this will be unnecessary
-        let safeAreaInsetsTop: CGFloat
-        safeAreaInsetsTop = navigationController.view.safeAreaInsets.top
-        _nativeCryptoCurrencyBalanceView.topMargin = 56 + safeAreaInsetsTop
-        return _nativeCryptoCurrencyBalanceView
-    }
-
-    private lazy var _nativeCryptoCurrencyBalanceView: NativeCryptoCurrencyBalanceView = {
-        return NativeCryptoCurrencyBalanceView(session: session, rightMargin: 16, topMargin: 0)
-    }()
+    private let nativeCryptoCurrencyPrices: ServerDictionary<Subscribable<Double>>
 
     private lazy var bookmarksStore: BookmarksStore = {
         return BookmarksStore(realm: sharedRealm)
@@ -83,7 +77,6 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         }
         set {
             Config.setChainId(newValue.chainID)
-            nativeCryptoCurrencyBalanceView.session = session
         }
     }
 
@@ -117,7 +110,9 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         keystore: Keystore,
         config: Config,
         sharedRealm: Realm,
-        browserOnly: Bool
+        browserOnly: Bool,
+        nativeCryptoCurrencyPrices: ServerDictionary<Subscribable<Double>>,
+        analyticsCoordinator: AnalyticsCoordinator
     ) {
         self.navigationController = UINavigationController(navigationBarClass: DappBrowserNavigationBar.self, toolbarClass: nil)
         self.sessions = sessions
@@ -125,6 +120,8 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         self.config = config
         self.sharedRealm = sharedRealm
         self.browserOnly = browserOnly
+        self.nativeCryptoCurrencyPrices = nativeCryptoCurrencyPrices
+        self.analyticsCoordinator = analyticsCoordinator
 
         super.init()
 
@@ -140,53 +137,41 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     }
 
     @objc func dismiss() {
-        navigationController.dismiss(animated: true, completion: nil)
+        removeAllCoordinators()
+        navigationController.dismiss(animated: true)
     }
 
+    private enum PendingTransaction {
+        case none
+        case data(callbackID: Int)
+    }
+
+    private var pendingTransaction: PendingTransaction = .none
+
     private func executeTransaction(account: AlphaWallet.Address, action: DappAction, callbackID: Int, transaction: UnconfirmedTransaction, type: ConfirmType, server: RPCServer) {
-        let configurator = TransactionConfigurator(
-            session: session,
-            account: account,
-            transaction: transaction
-        )
-        let coordinator = ConfirmCoordinator(
-            session: session,
-            configurator: configurator,
-            keystore: keystore,
-            account: account,
-            type: type
-        )
+        pendingTransaction = .data(callbackID: callbackID)
+        let ethPrice = nativeCryptoCurrencyPrices[server]
+        let coordinator = TransactionConfirmationCoordinator(navigationController: navigationController, session: session, transaction: transaction, configuration: .dappTransaction(confirmType: type, keystore: keystore, ethPrice: ethPrice), analyticsCoordinator: analyticsCoordinator)
+        coordinator.delegate = self
         addCoordinator(coordinator)
-        coordinator.didCompleted = { [weak self] result in
-            guard let strongSelf = self else { return }
-            switch result {
-            case .success(let type):
-                switch type {
-                case .signedTransaction(let data):
-                    let callback = DappCallback(id: callbackID, value: .signTransaction(data))
-                    strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
-                    //TODO do we need to do this for a pending transaction?
-//                    strongSelf.delegate?.didSentTransaction(transaction: transaction, inCoordinator: strongSelf)
-                case .sentTransaction(let transaction):
-                    // on send transaction we pass transaction ID only.
-                    let data = Data(hex: transaction.id)
-                    let callback = DappCallback(id: callbackID, value: .sentTransaction(data))
-                    strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
-                    strongSelf.delegate?.didSentTransaction(transaction: transaction, inCoordinator: strongSelf)
-                }
-            case .failure:
-                strongSelf.browserViewController.notifyFinish(
-                        callbackID: callbackID,
-                        value: .failure(DAppError.cancelled)
-                )
+        coordinator.start(fromSource: .browser)
+    }
+
+    private func ethCall(callbackID: Int, from: AlphaWallet.Address?, to: AlphaWallet.Address?, data: String, server: RPCServer) {
+        let request = EthCallRequest(from: from, to: to, data: data)
+        firstly {
+            Session.send(EtherServiceRequest(server: server, batch: BatchFactory().create(request)))
+        }.done { result in
+            let callback = DappCallback(id: callbackID, value: .ethCall(result))
+            self.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
+        }.catch { error in
+            if case let SessionTaskError.responseError(JSONRPCError.responseError(e)) = error {
+                self.browserViewController.notifyFinish(callbackID: callbackID, value: .failure(.nodeError(e.message)))
+            } else {
+                //TODO better handle. User didn't cancel
+                self.browserViewController.notifyFinish(callbackID: callbackID, value: .failure(.cancelled))
             }
-            coordinator.didCompleted = nil
-            strongSelf.removeCoordinator(coordinator)
-            strongSelf.navigationController.dismiss(animated: true, completion: nil)
         }
-        coordinator.start()
-        coordinator.navigationController.makePresentationFullScreenForiOS13Migration()
-        navigationController.present(coordinator.navigationController, animated: true, completion: nil)
     }
 
     func open(url: URL, animated: Bool = true, forceReload: Bool = false) {
@@ -209,42 +194,28 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         }
 
         browserViewController.goTo(url: url)
-        //FIXME: for some reasons webView doesnt reload itself when load(URLRequest) method is called. we need to force reload it
-        if forceReload {
-            browserViewController.reload()
-        }
     }
 
     func signMessage(with type: SignMessageType, account: AlphaWallet.Address, callbackID: Int) {
-        nativeCryptoCurrencyBalanceView.hide()
-        let coordinator = SignMessageCoordinator(
-            navigationController: navigationController,
-            keystore: keystore,
-            account: account
-        )
-        coordinator.didComplete = { [weak self] result in
-            guard let strongSelf = self else { return }
-            switch result {
-            case .success(let data):
-                let callback: DappCallback
-                switch type {
-                case .message:
-                    callback = DappCallback(id: callbackID, value: .signMessage(data))
-                case .personalMessage:
-                    callback = DappCallback(id: callbackID, value: .signPersonalMessage(data))
-                case .typedMessage:
-                    callback = DappCallback(id: callbackID, value: .signTypedMessage(data))
-                }
-                strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
-            case .failure:
-                strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
+        firstly {
+            SignMessageCoordinator.promise(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, keystore: keystore, coordinator: self, signType: type, account: account, source: .dappBrowser)
+        }.done { data in
+            let callback: DappCallback
+            switch type {
+            case .message:
+                callback = DappCallback(id: callbackID, value: .signMessage(data))
+            case .personalMessage:
+                callback = DappCallback(id: callbackID, value: .signPersonalMessage(data))
+            case .typedMessage:
+                callback = DappCallback(id: callbackID, value: .signTypedMessage(data))
+            case .eip712v3And4:
+                callback = DappCallback(id: callbackID, value: .signTypedMessageV3(data))
             }
-            coordinator.didComplete = nil
-            strongSelf.removeCoordinator(coordinator)
+
+            self.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
+        }.catch { _ in
+            self.browserViewController.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
         }
-        coordinator.delegate = self
-        addCoordinator(coordinator)
-        coordinator.start(with: type)
     }
 
     private func makeMoreAlertSheet(sender: UIView) -> UIAlertController {
@@ -257,6 +228,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
         alertController.popoverPresentationController?.sourceRect = sender.centerRect
 
         let reloadAction = UIAlertAction(title: R.string.localizable.reload(), style: .default) { [weak self] _ in
+            self?.logReload()
             self?.browserViewController.reload()
         }
         reloadAction.isEnabled = hasWebPageLoaded
@@ -295,6 +267,7 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     }
 
     private func share(sender: UIView) {
+        logShare()
         guard let url = currentUrl else { return }
         rootViewController.displayLoading()
         rootViewController.showShareActivity(fromSource: .view(sender), with: [url]) { [weak self] in
@@ -333,43 +306,118 @@ final class DappBrowserCoordinator: NSObject, Coordinator {
     }
 
     private func addCurrentPageAsBookmark() {
-        guard let url = currentUrl?.absoluteString else { return }
-        guard let title = browserViewController.webView.title else { return }
-        let bookmark = Bookmark(url: url, title: title)
-        bookmarksStore.add(bookmarks: [bookmark])
-        refreshDapps()
+        logAddDapp()
+        if let url = currentUrl?.absoluteString, let title = browserViewController.webView.title {
+            let bookmark = Bookmark(url: url, title: title)
+            bookmarksStore.add(bookmarks: [bookmark])
+            refreshDapps()
+
+            UINotificationFeedbackGenerator.show(feedbackType: .success)
+        } else {
+            UINotificationFeedbackGenerator.show(feedbackType: .error)
+        }
     }
 
     private func scanQrCode() {
         guard navigationController.ensureHasDeviceAuthorization() else { return }
 
-        let coordinator = ScanQRCodeCoordinator(navigationController: navigationController, account: session.account, server: session.server)
+        let coordinator = ScanQRCodeCoordinator(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, account: session.account)
         coordinator.delegate = self
         addCoordinator(coordinator)
-        coordinator.start()
+        coordinator.start(fromSource: .browserScreen)
     }
 
     private func showServers() {
-        nativeCryptoCurrencyBalanceView.hide()
-        let coordinator = ServersCoordinator(defaultServer: server, config: config)
+        logSwitchServer()
+        let coordinator = ServersCoordinator(defaultServer: server, config: config, navigationController: navigationController)
         coordinator.delegate = self
         coordinator.start()
         addCoordinator(coordinator)
-        let nc = UINavigationController(rootViewController: coordinator.serversViewController)
-        nc.makePresentationFullScreenForiOS13Migration()
-        navigationController.present(nc, animated: true)
+
+        browserNavBar?.setBrowserBar(hidden: true)
     }
 
     private func withCurrentUrl(handler: (URL?) -> Void) {
         handler(browserNavBar?.url)
     }
 
-    func willHide() {
-        nativeCryptoCurrencyBalanceView.hide()
-    }
-
     func isMagicLink(_ url: URL) -> Bool {
         return RPCServer.allCases.contains { $0.magicLinkHost == url.host }
+    }
+
+    func `switch`(toServer server: RPCServer, url: URL? = nil) {
+        self.server = server
+        withCurrentUrl { previousUrl in
+            //TODO extract method? Clean up
+            browserNavBar?.clearDisplay()
+            browserNavBar?.configure(server: server)
+            start()
+
+            guard let url = url ?? previousUrl else { return }
+            open(url: url, animated: false)
+        }
+    }
+}
+
+extension DappBrowserCoordinator: TransactionConfirmationCoordinatorDelegate {
+
+    func coordinator(_ coordinator: TransactionConfirmationCoordinator, didFailTransaction error: AnyError) {
+        coordinator.close { [weak self] in
+            guard let strongSelf = self else { return }
+
+            switch strongSelf.pendingTransaction {
+            case .data(let callbackID):
+                strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
+            case .none:
+                break
+            }
+
+            strongSelf.removeCoordinator(coordinator)
+            strongSelf.navigationController.dismiss(animated: true)
+        }
+    }
+
+    func didClose(in coordinator: TransactionConfirmationCoordinator) {
+        switch pendingTransaction {
+        case .data(let callbackID):
+            browserViewController.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
+        case .none:
+            break
+        }
+
+        removeCoordinator(coordinator)
+        navigationController.dismiss(animated: true)
+    }
+
+    func coordinator(_ coordinator: TransactionConfirmationCoordinator, didCompleteTransaction result: TransactionConfirmationResult) {
+        coordinator.close { [weak self] in
+            guard let strongSelf = self, let delegate = strongSelf.delegate else { return }
+
+            switch (strongSelf.pendingTransaction, result) {
+            case (.data(let callbackID), .confirmationResult(let type)):
+                switch type {
+                case .signedTransaction(let data):
+                    let callback = DappCallback(id: callbackID, value: .signTransaction(data))
+                    strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
+                    //TODO do we need to do this for a pending transaction?
+    //                    strongSelf.delegate?.didSentTransaction(transaction: transaction, inCoordinator: strongSelf)
+                case .sentTransaction(let transaction):
+                    // on send transaction we pass transaction ID only.
+                    let data = Data(_hex: transaction.id)
+                    let callback = DappCallback(id: callbackID, value: .sentTransaction(data))
+                    strongSelf.browserViewController.notifyFinish(callbackID: callbackID, value: .success(callback))
+
+                    delegate.didSentTransaction(transaction: transaction, inCoordinator: strongSelf)
+                case .sentRawTransaction:
+                    break
+                }
+            case (.none, .noData), (.none, .confirmationResult), (.data, .noData):
+                break
+            }
+
+            strongSelf.removeCoordinator(coordinator)
+            strongSelf.navigationController.dismiss(animated: true)
+        }
     }
 }
 
@@ -380,30 +428,27 @@ extension DappBrowserCoordinator: BrowserViewControllerDelegate {
             navigationController.topViewController?.displayError(error: InCoordinatorError.onlyWatchAccount)
             return
         }
+
         switch action {
         case .signTransaction(let unconfirmedTransaction):
             executeTransaction(account: account, action: action, callbackID: callbackID, transaction: unconfirmedTransaction, type: .signThenSend, server: server)
         case .sendTransaction(let unconfirmedTransaction):
             executeTransaction(account: account, action: action, callbackID: callbackID, transaction: unconfirmedTransaction, type: .signThenSend, server: server)
         case .signMessage(let hexMessage):
-            let msg = convertMessageToHex(msg: hexMessage)
-            signMessage(with: .message(Data(hex: msg)), account: account, callbackID: callbackID)
+            signMessage(with: .message(hexMessage.toHexData), account: account, callbackID: callbackID)
         case .signPersonalMessage(let hexMessage):
-            let msg = convertMessageToHex(msg: hexMessage)
-            signMessage(with: .personalMessage(Data(hex: msg)), account: account, callbackID: callbackID)
+            signMessage(with: .personalMessage(hexMessage.toHexData), account: account, callbackID: callbackID)
         case .signTypedMessage(let typedData):
             signMessage(with: .typedMessage(typedData), account: account, callbackID: callbackID)
-        case .unknown:
+        case .signTypedMessageV3(let typedData):
+            signMessage(with: .eip712v3And4(typedData), account: account, callbackID: callbackID)
+        case .ethCall(from: let from, to: let to, data: let data):
+            //Must use unchecked form for `Address `because `from` and `to` might be 0x0..0. We assume the dapp author knows what they are doing
+            let from = AlphaWallet.Address(uncheckedAgainstNullAddress: from)
+            let to = AlphaWallet.Address(uncheckedAgainstNullAddress: to)
+            ethCall(callbackID: callbackID, from: from, to: to, data: data, server: server)
+        case .unknown, .sendRawTransaction:
             break
-        }
-    }
-
-    //allow the message to be passed in as a pure string, if it is then we convert it to hex
-    private func convertMessageToHex(msg: String) -> String {
-        if msg.hasPrefix("0x") {
-            return msg
-        } else {
-            return msg.hex
         }
     }
 
@@ -422,20 +467,13 @@ extension DappBrowserCoordinator: BrowserViewControllerDelegate {
     func forceUpdate(url: URL, inBrowserViewController viewController: BrowserViewController) {
         browserNavBar?.display(url: url)
     }
-}
 
-extension DappBrowserCoordinator: SignMessageCoordinatorDelegate {
-    func didCancel(in coordinator: SignMessageCoordinator) {
-        coordinator.didComplete = nil
-        removeCoordinator(coordinator)
+    func handleUniversalLink(_ url: URL, inBrowserViewController viewController: BrowserViewController) {
+        delegate?.handleUniversalLink(url, forCoordinator: self)
     }
-}
 
-extension DappBrowserCoordinator: ConfirmCoordinatorDelegate {
-    func didCancel(in coordinator: ConfirmCoordinator) {
-        navigationController.dismiss(animated: true, completion: nil)
-        coordinator.didCompleted = nil
-        removeCoordinator(coordinator)
+    func handleCustomUrlScheme(_ url: URL, inBrowserViewController viewController: BrowserViewController) {
+        delegate?.handleCustomUrlScheme(url, forCoordinator: self)
     }
 }
 
@@ -518,6 +556,7 @@ extension DappBrowserCoordinator: WKUIDelegate {
 
 extension DappBrowserCoordinator: DappsHomeViewControllerDelegate {
     func didTapShowMyDappsViewController(inViewController viewController: DappsHomeViewController) {
+        logShowDapps()
         let viewController = MyDappsViewController(bookmarksStore: bookmarksStore)
         viewController.configure(viewModel: .init(bookmarksStore: bookmarksStore))
         viewController.delegate = self
@@ -525,6 +564,7 @@ extension DappBrowserCoordinator: DappsHomeViewControllerDelegate {
     }
 
     func didTapShowBrowserHistoryViewController(inViewController viewController: DappsHomeViewController) {
+        logShowHistory()
         pushOntoNavigationController(viewController: historyViewController, animated: true)
     }
 
@@ -572,12 +612,14 @@ extension DappBrowserCoordinator: DiscoverDappsViewControllerDelegate {
 
 extension DappBrowserCoordinator: MyDappsViewControllerDelegate {
     func didTapToEdit(dapp: Bookmark, inViewController viewController: MyDappsViewController) {
-        let vc = EditMyDappViewController()
-        vc.delegate = self
-        vc.configure(viewModel: .init(dapp: dapp))
-        vc.hidesBottomBarWhenPushed = true
-        vc.makePresentationFullScreenForiOS13Migration()
-        navigationController.present(vc, animated: true)
+        let viewController = EditMyDappViewController()
+        viewController.delegate = self
+        viewController.configure(viewModel: .init(dapp: dapp))
+        viewController.hidesBottomBarWhenPushed = true
+
+        browserNavBar?.setBrowserBar(hidden: true)
+
+        navigationController.pushViewController(viewController, animated: true)
     }
 
     func didTapToSelect(dapp: Bookmark, inViewController viewController: MyDappsViewController) {
@@ -629,6 +671,7 @@ extension DappBrowserCoordinator: DappBrowserNavigationBarDelegate {
     }
 
     func didTapMore(sender: UIView, inNavigationBar navigationBar: DappBrowserNavigationBar) {
+        logTapMore()
         let alertController = makeMoreAlertSheet(sender: sender)
         navigationController.present(alertController, animated: true, completion: nil)
     }
@@ -651,6 +694,7 @@ extension DappBrowserCoordinator: DappBrowserNavigationBarDelegate {
     }
 
     func didEnter(text: String, inNavigationBar navigationBar: DappBrowserNavigationBar) {
+        logEnterUrl()
         guard let url = urlParser.url(from: text.trimmed) else { return }
         open(url: url, animated: false)
     }
@@ -662,12 +706,16 @@ extension DappBrowserCoordinator: EditMyDappViewControllerDelegate {
             dapp.title = title
             dapp.url = url
         }
-        viewController.dismiss(animated: true)
+        browserNavBar?.setBrowserBar(hidden: false)
+
+        navigationController.popViewController(animated: true)
         refreshDapps()
     }
 
     func didTapCancel(inViewController viewController: EditMyDappViewController) {
-        viewController.dismiss(animated: true)
+        browserNavBar?.setBrowserBar(hidden: false)
+
+        navigationController.popViewController(animated: true)
     }
 }
 
@@ -686,28 +734,58 @@ extension DappBrowserCoordinator: ScanQRCodeCoordinatorDelegate {
 
 extension DappBrowserCoordinator: ServersCoordinatorDelegate {
     func didSelectServer(server: RPCServerOrAuto, in coordinator: ServersCoordinator) {
+        browserNavBar?.setBrowserBar(hidden: false)
+
         switch server {
         case .auto:
             break
         case .server(let server):
-            self.server = server
-            coordinator.serversViewController.navigationController?.dismiss(animated: true)
+            coordinator.navigationController.popViewController(animated: true)
             removeCoordinator(coordinator)
-
-            withCurrentUrl { url in
-                //TODO extract method? Clean up
-                browserNavBar?.clearDisplay()
-                browserNavBar?.configure(server: server)
-                start()
-
-                guard let url = url else { return }
-                open(url: url, animated: false)
-            }
+            `switch`(toServer: server)
         }
     }
 
     func didSelectDismiss(in coordinator: ServersCoordinator) {
-        coordinator.serversViewController.navigationController?.dismiss(animated: true)
+        browserNavBar?.setBrowserBar(hidden: false)
+
+        coordinator.navigationController.popViewController(animated: true)
+
         removeCoordinator(coordinator)
+    }
+}
+
+//MARK: Analytics
+extension DappBrowserCoordinator {
+    private func logReload() {
+        analyticsCoordinator.log(action: Analytics.Action.reloadBrowser)
+    }
+
+    private func logShare() {
+        analyticsCoordinator.log(action: Analytics.Action.shareUrl, properties: [Analytics.Properties.source.rawValue: "browser"])
+    }
+
+    private func logAddDapp() {
+        analyticsCoordinator.log(action: Analytics.Action.addDapp)
+    }
+
+    private func logSwitchServer() {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.switchServers, properties: [Analytics.Properties.source.rawValue: "browser"])
+    }
+
+    private func logShowDapps() {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.showDapps)
+    }
+
+    private func logShowHistory() {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.showHistory)
+    }
+
+    private func logTapMore() {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.tapBrowserMore)
+    }
+
+    private func logEnterUrl() {
+        analyticsCoordinator.log(action: Analytics.Action.enterUrl)
     }
 }

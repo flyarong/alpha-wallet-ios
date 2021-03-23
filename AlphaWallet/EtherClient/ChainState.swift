@@ -3,6 +3,7 @@
 import Foundation
 import JSONRPCKit
 import APIKit
+import PromiseKit
 
 class ChainState {
 
@@ -49,12 +50,14 @@ class ChainState {
 
     @objc func fetch() {
         let request = EtherServiceRequest(server: server, batch: BatchFactory().create(BlockNumberRequest()))
-        Session.send(request) { [weak self] result in
-            guard let strongSelf = self else { return }
-            switch result {
-            case .success(let number):
-                strongSelf.latestBlock = number
-            case .failure: break
+        firstly {
+            Session.send(request)
+        }.done {
+            self.latestBlock = $0
+        }.catch { error in
+            //We need to catch (and since we can make a good guess what it might be, capture it below) it instead of `.cauterize()` because the latter would log a scary message about malformed JSON in the console.
+            if error is PossibleBinanceTestnetTimeoutError {
+                //TODO log
             }
         }
     }

@@ -9,6 +9,7 @@ protocol EnterSellTokensCardPriceQuantityViewControllerDelegate: class, CanOpenU
 }
 
 class EnterSellTokensCardPriceQuantityViewController: UIViewController, TokenVerifiableStatusViewController {
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let storage: TokensDataStore
     private let roundedBackground = RoundedBackground()
     private let scrollView = UIScrollView()
@@ -35,8 +36,9 @@ class EnterSellTokensCardPriceQuantityViewController: UIViewController, TokenVer
 
     private var totalDollarCost: String {
         if let dollarCostPerToken = pricePerTokenField.dollarCost {
-            let quantity = Double(quantityStepper.value)
-            return StringFormatter().currency(with: dollarCostPerToken * quantity, and: "USD")
+            let quantity = NSDecimalNumber(value: quantityStepper.value)
+            let value = dollarCostPerToken.multiplying(by: quantity)
+            return StringFormatter().currency(with: value, and: "USD")
         } else {
             return ""
         }
@@ -55,12 +57,14 @@ class EnterSellTokensCardPriceQuantityViewController: UIViewController, TokenVer
 
 // swiftlint:disable function_body_length
     init(
+            analyticsCoordinator: AnalyticsCoordinator,
             storage: TokensDataStore,
             paymentFlow: PaymentFlow,
             cryptoPrice: Subscribable<Double>,
             viewModel: EnterSellTokensCardPriceQuantityViewControllerViewModel,
             assetDefinitionStore: AssetDefinitionStore
     ) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.storage = storage
         self.paymentFlow = paymentFlow
         self.ethPrice = cryptoPrice
@@ -72,7 +76,7 @@ class EnterSellTokensCardPriceQuantityViewController: UIViewController, TokenVer
         case .backedByOpenSea:
             tokenRowView = OpenSeaNonFungibleTokenCardRowView(tokenView: .viewIconified)
         case .notBackedByOpenSea:
-            tokenRowView = TokenCardRowView(server: viewModel.token.server, tokenView: .viewIconified, assetDefinitionStore: assetDefinitionStore)
+            tokenRowView = TokenCardRowView(analyticsCoordinator: analyticsCoordinator, server: viewModel.token.server, tokenView: .viewIconified, assetDefinitionStore: assetDefinitionStore)
         }
 
         super.init(nibName: nil, bundle: nil)
@@ -96,7 +100,7 @@ class EnterSellTokensCardPriceQuantityViewController: UIViewController, TokenVer
         pricePerTokenField.translatesAutoresizingMaskIntoConstraints = false
         cryptoPrice.subscribe { [weak self] value in
             if let value = value {
-                self?.pricePerTokenField.cryptoToDollarRate = value
+                self?.pricePerTokenField.cryptoToDollarRate = NSDecimalNumber(value: value)
             }
         }
         pricePerTokenField.delegate = self

@@ -5,6 +5,8 @@ import Foundation
 This comment is here with the wrong syntax (no leading //) to force a build error if this file is accidentally included
 enum OriginalDapps {
     static let masterList = [
+        Dapp(name: "Rare Coin", description: "Free Crypto Faucet & Yeild Farming", url: "make.rare.claims", cat: "Tools"),
+        Dapp(name: "Eporio", description: "The cheaper marketplace for NFT - Non Fungible Tokens", url: "https://epor.io", cat: "Marketplace"),
         Dapp(name: "TokenSets", description: "Enhance your portfolio with automated asset management strategies.", url: "https://www.tokensets.com/", cat: "Finance"),
         Dapp(name: "State of the ÐApps", description: "Directory of Decentralized Applications", url: "https://www.stateofthedapps.com/", cat: "Directory"),
         Dapp(name: "BulkSender", description: "Batch sending of tokens", url: "https://bulksender.app/", cat: "Finance"),
@@ -40,6 +42,7 @@ enum OriginalDapps {
         Dapp(name: "NFT Token Factory", description: "Create an ERC875 NFT contract at the click of a button", url: "https://tf.alphawallet.com/", cat: "Tools"),
         Dapp(name: "SmartDrops", description: "A platform that lets people earn crypto by joining new token projects.", url: "https://www.smartdrops.io/", cat: "Tools"),
         Dapp(name: "xDai Bridge", description: "xDai/Ethereum bridge for self transfers of Dai to xDai", url: "https://dai-bridge.poa.network/", cat: "Tools"),
+        Dapp(name: "Alfacash", description: "Trade crypto instantly. ETH, BTC, XRP and 30+ other coins and tokens", url: "https://www.alfa.cash/", cat: "Exchange"),
         Dapp(name: "0x Instant", description: "A free and flexible way to offer simple crypto purchasing", url: "http://0x-instant-staging.s3-website-us-east-1.amazonaws.com/", cat: "Exchange"),
         Dapp(name: "Bancor", description: "Built-in price discovery and a liquidity mechanism for tokens", url: "https://www.bancor.network", cat: "Exchange"),
         Dapp(name: "KyberSwap", description: "Instant and Secure Token to Token Swaps", url: "https://kyber.network/swap/eth_knc", cat: "Exchange"),
@@ -63,7 +66,8 @@ enum OriginalDapps {
         Dapp(name: "ATS Bridge", description: "ATS/ATS20 bridge for self transfers of ATS to ATS20", url: "https://bridge.artis.network/", cat: "Tool"),
         Dapp(name: "1inch.exchange", description: "DEX Aggregator with the best prices on the market. Achieving best rates by splitting orders among multiple DEXes in one single transaction.", url: "https://1inch.exchange/", cat: "Exchange"),
         Dapp(name: "SpiderDEX", description: "Decentralized exchange for crypto collectibles.", url: "https://www.spiderdex.com", cat: "Exchange"),
-        Dapp(name: "DeFi Money Market (DMM)", description: "Earn interest on your crypto through real world tokenized assets", url: "https://www.spiderdex.com", cat: "Finance")
+        Dapp(name: "DeFi Money Market (DMM)", description: "Earn interest on your crypto through real world tokenized assets", url: "https://www.spiderdex.com", cat: "Finance"),
+        Dapp(name: "DerivaDEX Insurance Fund", description: "DerivaDEX is the next generation of crypto derivatives. Begin earning DDX by bootstrapping the insurance fund.", url: "https://insurance.derivadex.com/", cat: "Finance")
     ]
 
     struct Category {

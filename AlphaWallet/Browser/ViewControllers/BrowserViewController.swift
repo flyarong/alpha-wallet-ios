@@ -11,6 +11,8 @@ protocol BrowserViewControllerDelegate: class {
     func didVisitURL(url: URL, title: String, inBrowserViewController viewController: BrowserViewController)
     func dismissKeyboard(inBrowserViewController viewController: BrowserViewController)
     func forceUpdate(url: URL, inBrowserViewController viewController: BrowserViewController)
+    func handleUniversalLink(_ url: URL, inBrowserViewController viewController: BrowserViewController)
+    func handleCustomUrlScheme(_ url: URL, inBrowserViewController viewController: BrowserViewController)
 }
 
 final class BrowserViewController: UIViewController {
@@ -153,7 +155,7 @@ final class BrowserViewController: UIViewController {
             case .success(let result):
                 return "executeCallback(\(callbackID), null, \"\(result.value.object)\")"
             case .failure(let error):
-                return "executeCallback(\(callbackID), \"\(error)\", null)"
+                return "executeCallback(\(callbackID), \"\(error.message)\", null)"
             }
         }()
         webView.evaluateJavaScript(script, completionHandler: nil)
@@ -221,8 +223,16 @@ extension BrowserViewController: WKNavigationDelegate {
             app.open(url)
             return decisionHandler(.cancel)
         }
-        decisionHandler(.allow)
+        if url.host == "aw.app" && url.path == UniversalLinkCoordinator.walletConnectPath {
+            delegate?.handleUniversalLink(url, inBrowserViewController: self)
+            return decisionHandler(.cancel)
+        }
+        if url.scheme == ShareContentAction.scheme {
+            delegate?.handleCustomUrlScheme(url, inBrowserViewController: self)
+            return decisionHandler(.cancel)
+        }
 
+        decisionHandler(.allow)
     }
 }
 
@@ -231,8 +241,7 @@ extension BrowserViewController: WKScriptMessageHandler {
         guard let command = DappAction.fromMessage(message) else { return }
         let requester = DAppRequester(title: webView.title, url: webView.url)
         let token = TokensDataStore.token(forServer: server)
-        let transfer = Transfer(server: server, type: .dapp(token, requester))
-        let action = DappAction.fromCommand(command, transfer: transfer)
+        let action = DappAction.fromCommand(command, server: server, transactionType: .dapp(token, requester))
 
         delegate?.didCall(action: action, callbackID: command.id, inBrowserViewController: self)
     }

@@ -1,18 +1,35 @@
 // Copyright SIX DAY LLC. All rights reserved.
 
 import Foundation
-import UIKit
+import UIKit 
+
+extension String {
+
+    //NOTE: as minimum chunck is as min time it will be executed, during testing we found that optimal chunck size is 100, but seems it could be optimized more, execution time (0.2 seconds), pretty good and doesn't block UI
+    var toHexData: Data {
+        if self.hasPrefix("0x") {
+            return Data(_hex: self, chunkSize: 100)
+        } else {
+            return Data(_hex: self.hex, chunkSize: 100)
+        }
+    }
+}
 
 extension String {
     var hex: String {
-        let data = self.data(using: .utf8)!
+        guard let data = self.data(using: .utf8) else {
+            return String()
+        }
+        
         return data.map {
             String(format: "%02x", $0)
         }.joined()
     }
 
     var hexEncoded: String {
-        let data = self.data(using: .utf8)!
+        guard let data = self.data(using: .utf8) else {
+            return String()
+        }
         return data.hexEncoded
     }
 
@@ -28,18 +45,7 @@ extension String {
     }
 
     var doubleValue: Double {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale.current
-        formatter.decimalSeparator = "."
-        if let result = formatter.number(from: self) {
-            return result.doubleValue
-        } else {
-            formatter.decimalSeparator = ","
-            if let result = formatter.number(from: self) {
-                return result.doubleValue
-            }
-        }
-        return 0
+        return optionalDecimalValue?.doubleValue ?? 0.0
     }
 
     var trimmed: String {
@@ -51,11 +57,19 @@ extension String {
             do {
                 return try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
             } catch {
-                print(error.localizedDescription)
                 return [:]
             }
         }
         return [:]
+    }
+
+    var has0xPrefix: Bool {
+        return hasPrefix("0x")
+    }
+
+    var isPrivateKey: Bool {
+        let value = self.drop0x.components(separatedBy: " ").joined()
+        return value.count == 64
     }
 
     var drop0x: String {
@@ -145,5 +159,27 @@ extension String {
 
     func titleCasedWords() -> String {
         return split(separator: " ").map { String($0).capitalizingFirstLetter() }.joined(separator: " ")
+    }
+}
+
+extension StringProtocol {
+
+    public func chunked(into size: Int) -> [SubSequence] {
+        var chunks: [SubSequence] = []
+
+        var i = startIndex
+
+        while let nextIndex = index(i, offsetBy: size, limitedBy: endIndex) {
+            chunks.append(self[i ..< nextIndex])
+            i = nextIndex
+        }
+
+        let finalChunk = self[i ..< endIndex]
+
+        if finalChunk.isEmpty == false {
+            chunks.append(finalChunk)
+        }
+
+        return chunks
     }
 }

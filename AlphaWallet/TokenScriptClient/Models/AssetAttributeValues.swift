@@ -28,6 +28,7 @@ class AssetAttributeValues {
                 } else {
                     if !subscribedAttributes.contains(where: { $0 === subscribable }) {
                         subscribedAttributes.append(subscribable)
+                        //TODO fix objects being retained. Cannot only make [weak self] because TokenScript values wouldn't be resolved
                         subscribable.subscribe { value in
                             guard let value = value else { return }
                             self.resolvedAttributeValues[name] = value

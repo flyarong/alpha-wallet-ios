@@ -21,8 +21,8 @@ struct SeedPhraseBackupIntroductionViewModel {
         let attributeString = NSMutableAttributedString(string: subtitle)
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        style.lineSpacing = ScreenChecker().isNarrowScreen ? 7 : 23
-        
+        style.lineSpacing = ScreenChecker.size(big: 18, medium: 14, small: 7)
+
         attributeString.addAttributes([
             .paragraphStyle: style,
             .font: Screen.Backup.subtitleFont,
@@ -37,7 +37,7 @@ struct SeedPhraseBackupIntroductionViewModel {
         let attributeString = NSMutableAttributedString(string: description)
         let style = NSMutableParagraphStyle()
         style.alignment = .center
-        style.lineSpacing = ScreenChecker().isNarrowScreen ? 7 : 14
+        style.lineSpacing = ScreenChecker.size(big: 18, medium: 14, small: 7)
         
         attributeString.addAttributes([
             .paragraphStyle: style,
@@ -46,21 +46,5 @@ struct SeedPhraseBackupIntroductionViewModel {
         ], range: NSRange(location: 0, length: description.count))
         
         return attributeString
-    }
-
-    var attributedWarningDescription: NSAttributedString {
-        let description = R.string.localizable.walletsShowSeedPhraseSubtitleError()
-        let attributeString = NSMutableAttributedString(string: description)
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        style.lineSpacing = ScreenChecker().isNarrowScreen ? 7 : 14
-
-        attributeString.addAttributes([
-            .paragraphStyle: style,
-            .font: Screen.Backup.descriptionFont,
-            .foregroundColor: Colors.appRed
-        ], range: NSRange(location: 0, length: description.count))
-
-        return attributeString
-    }
+    } 
 }

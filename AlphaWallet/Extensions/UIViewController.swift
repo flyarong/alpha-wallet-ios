@@ -10,15 +10,40 @@ enum ConfirmationError: LocalizedError {
     case cancel
 }
 
+extension UIView {
+    func showCopiedToClipboard(title: String, feedbackType: NotificationFeedbackType? = .success) {
+        let hud = MBProgressHUD.showAdded(to: self, animated: true)
+        hud.mode = .text
+        hud.label.text = title
+        hud.hide(animated: true, afterDelay: 1.5)
+
+        if let feedback = feedbackType {
+            UINotificationFeedbackGenerator.show(feedbackType: feedback)
+        }
+    }
+}
+
 extension UIViewController {
-    func displaySuccess(title: String? = .none, message: String? = .none) {
+    @discardableResult func displaySuccess(title: String? = .none, message: String? = .none) -> UIViewController {
         let alertController = UIAlertController(title: title, message: message, preferredStyle: UIAlertController.Style.alert)
         alertController.popoverPresentationController?.sourceView = view
         alertController.addAction(UIAlertAction(title: R.string.localizable.oK(), style: .default, handler: nil))
-        present(alertController, animated: true, completion: nil)
+        present(alertController, animated: true)
+
+        return alertController
     }
 
-    func displayError(title: String = "", error: Error) {
+    func displayError(message: String, completion: @escaping () -> Void = {}) {
+        let alertController = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alertController.popoverPresentationController?.sourceView = view
+        alertController.addAction(UIAlertAction(title: R.string.localizable.oK(), style: .default) { _ in
+            completion()
+        })
+
+        present(alertController, animated: true)
+    }
+
+    @discardableResult func displayError(title: String = "", error: Error) -> UIViewController {
         var title = title
         let message: String
         if title.isEmpty {
@@ -30,7 +55,9 @@ extension UIViewController {
         let alertController = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alertController.popoverPresentationController?.sourceView = view
         alertController.addAction(UIAlertAction(title: R.string.localizable.oK(), style: .default, handler: nil))
-        present(alertController, animated: true, completion: nil)
+        present(alertController, animated: true)
+
+        return alertController
     }
 
     func confirm(

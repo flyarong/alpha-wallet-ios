@@ -29,9 +29,20 @@ struct SettingsViewModel {
 
     let sections: [SettingsSection]
 
-    init(account: Wallet) {
+    init(account: Wallet, keystore: Keystore) {
         self.account = account
-        let walletRows: [SettingsWalletRow] = account.allowBackup ? SettingsWalletRow.allCases : [.showMyWallet, .changeWallet]
+        let walletRows: [SettingsWalletRow]
+
+        if account.allowBackup {
+            if keystore.isHdWallet(wallet: account) {
+                walletRows = [.showMyWallet, .changeWallet, .backup, .showSeedPhrase, .walletConnect, .useTaiChiNetwork]
+            } else {
+                walletRows = [.showMyWallet, .changeWallet, .backup, .walletConnect, .useTaiChiNetwork]
+            }
+        } else {
+            walletRows = [.showMyWallet, .changeWallet, .walletConnect, .useTaiChiNetwork]
+        }
+
         sections = [
             .wallet(rows: walletRows),
             .system(rows: [.passcode, .selectActiveNetworks, .advanced]),
@@ -63,6 +74,9 @@ enum SettingsWalletRow: CaseIterable {
     case showMyWallet
     case changeWallet
     case backup
+    case showSeedPhrase
+    case walletConnect
+    case useTaiChiNetwork
 
     var title: String {
         switch self {
@@ -72,6 +86,12 @@ enum SettingsWalletRow: CaseIterable {
             return R.string.localizable.settingsChangeWalletTitle()
         case .backup:
             return R.string.localizable.settingsBackupWalletButtonTitle()
+        case .showSeedPhrase:
+            return R.string.localizable.settingsShowSeedPhraseButtonTitle()
+        case .walletConnect:
+            return R.string.localizable.settingsWalletConnectButtonTitle()
+        case .useTaiChiNetwork:
+            return R.string.localizable.settingsUseTaichiNetworkButtonTitle()
         }
     }
 
@@ -83,6 +103,12 @@ enum SettingsWalletRow: CaseIterable {
             return R.image.changeWallet()!
         case .backup:
             return R.image.backupCircle()!
+        case .showSeedPhrase:
+            return R.image.iconsSettingsSeed2()!
+        case .walletConnect:
+            return R.image.iconsSettingsWalletConnect()!
+        case .useTaiChiNetwork:
+            return R.image.iconsSettingsTaiChi()!
         }
     }
 }

@@ -6,30 +6,31 @@ import BigInt
 import PromiseKit
 
 struct TokenViewControllerViewModel {
-    private let transferType: TransferType
+    private let transactionType: TransactionType
     private let session: WalletSession
     private let tokensStore: TokensDataStore
     private let transactionsStore: TransactionsStorage
     private let assetDefinitionStore: AssetDefinitionStore
+    private let tokenActionsProvider: TokenActionsProvider
 
     var token: TokenObject? {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             //TODO might as well just make .nativeCryptocurrency hold the TokenObject instance too
             return TokensDataStore.etherToken(forServer: session.server)
         case .ERC20Token(let token, _, _):
             return token
-        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             return nil
         }
     }
 
-    let recentTransactions: [Transaction]
+    let recentTransactions: [TransactionInstance]
 
     var actions: [TokenInstanceAction] {
         guard let token = token else { return [] }
         let xmlHandler = XMLHandler(token: token, assetDefinitionStore: assetDefinitionStore)
-        let actionsFromTokenScript = xmlHandler.actions
+        var actionsFromTokenScript = xmlHandler.actions
 
         if actionsFromTokenScript.isEmpty {
             switch token.type {
@@ -39,18 +40,23 @@ struct TokenViewControllerViewModel {
                 return []
             case .erc721ForTickets:
                 return []
-            case .erc20, .nativeCryptocurrency:
-                if UniswapERC20Token.isSupport(token: token) {
-                    return [
-                        .init(type: .erc20Send),
-                        .init(type: .erc20Receive),
-                        .init(type: .erc20ExchangeOnUniswap)
-                    ]
-                } else {
-                    return [
-                        .init(type: .erc20Send),
-                        .init(type: .erc20Receive)
-                    ]
+            case .erc20:
+                let actions: [TokenInstanceAction] = [
+                    .init(type: .erc20Send),
+                    .init(type: .erc20Receive)
+                ]
+
+                return actions + tokenActionsProvider.actions(token: token)
+            case .nativeCryptocurrency:
+                let actions: [TokenInstanceAction] = [
+                    .init(type: .erc20Send),
+                    .init(type: .erc20Receive)
+                ]
+                switch token.server {
+                case .xDai:
+                    return [.init(type: .erc20Send), .init(type: .xDaiBridge), .init(type: .erc20Receive)] + tokenActionsProvider.actions(token: token)
+                case .main, .kovan, .ropsten, .rinkeby, .poa, .sokol, .classic, .callisto, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .heco, .heco_testnet, .custom, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
+                    return actions + tokenActionsProvider.actions(token: token)
                 }
             }
         } else {
@@ -58,33 +64,28 @@ struct TokenViewControllerViewModel {
             case .erc875, .erc721, .erc721ForTickets:
                 return actionsFromTokenScript
             case .erc20:
-                if UniswapERC20Token.isSupport(token: token) {
-                    return actionsFromTokenScript + [.init(type: .erc20ExchangeOnUniswap)]
-                } else {
-                    return actionsFromTokenScript
-                }
+                return actionsFromTokenScript + tokenActionsProvider.actions(token: token)
             case .nativeCryptocurrency:
+                let xDaiBridgeActions: [TokenInstanceAction]
+                switch token.server {
+                case .xDai:
+                    xDaiBridgeActions = [.init(type: .xDaiBridge)]
+                case .main, .kovan, .ropsten, .rinkeby, .poa, .sokol, .classic, .callisto, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .heco, .heco_testnet, .custom, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
+                    xDaiBridgeActions = []
+                }
+
                 //TODO we should support retrieval of XML (and XMLHandler) based on address + server. For now, this is only important for native cryptocurrency. So might be ok to check like this for now
                 if let server = xmlHandler.server, server.matches(server: token.server) {
-                    if UniswapERC20Token.isSupport(token: token) {
-                        return actionsFromTokenScript + [.init(type: .erc20ExchangeOnUniswap)]
-                    } else {
-                        return actionsFromTokenScript
-                    }
+                    actionsFromTokenScript += tokenActionsProvider.actions(token: token)
+                    return xDaiBridgeActions + actionsFromTokenScript
                 } else {
                     //TODO .erc20Send and .erc20Receive names aren't appropriate
-                    if UniswapERC20Token.isSupport(token: token) {
-                        return [
-                            .init(type: .erc20Send),
-                            .init(type: .erc20Receive),
-                            .init(type: .erc20ExchangeOnUniswap)
-                        ]
-                    } else {
-                        return [
-                            .init(type: .erc20Send),
-                            .init(type: .erc20Receive)
-                        ]
-                    }
+                    let actions: [TokenInstanceAction] = [
+                        .init(type: .erc20Send),
+                        .init(type: .erc20Receive)
+                    ]
+
+                    return xDaiBridgeActions + actions + tokenActionsProvider.actions(token: token)
                 }
             }
         }
@@ -101,49 +102,55 @@ struct TokenViewControllerViewModel {
     }
 
     var fungibleBalance: BigInt? {
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             let string: String? = session.balanceViewModel.value?.amountShort
             return string.flatMap { EtherNumberFormatter.full.number(from: $0, decimals: session.server.decimals) }
         case .ERC20Token(let tokenObject, _, _):
             return tokenObject.valueBigInt
-        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             return nil
         }
     }
 
-    init(transferType: TransferType, session: WalletSession, tokensStore: TokensDataStore, transactionsStore: TransactionsStorage, assetDefinitionStore: AssetDefinitionStore) {
-        self.transferType = transferType
+    init(transactionType: TransactionType, session: WalletSession, tokensStore: TokensDataStore, transactionsStore: TransactionsStorage, assetDefinitionStore: AssetDefinitionStore, tokenActionsProvider: TokenActionsProvider) {
+        self.transactionType = transactionType
         self.session = session
         self.tokensStore = tokensStore
         self.transactionsStore = transactionsStore
         self.assetDefinitionStore = assetDefinitionStore
+        self.tokenActionsProvider = tokenActionsProvider
 
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency:
             self.recentTransactions = Array(transactionsStore.objects.lazy
-                    .filter({ $0.state == .completed || $0.state == .pending })
-                    .filter({ $0.operation == nil })
-                    .filter({ $0.value != "" && $0.value != "0" })
-                    .prefix(3))
+                    .filter({ TokenViewControllerViewModel.filterTransactionsForNativeCryptocurrency(transaction: $0) })
+                    .prefix(3)
+                    .map { TransactionInstance(transaction: $0) })
+
         case .ERC20Token(let token, _, _):
             self.recentTransactions = Array(transactionsStore.objects.lazy
-                    .filter({ $0.state == .completed || $0.state == .pending })
-                    .filter({
-                        if let operation = $0.operation {
-                            return operation.operationType == .erc20TokenTransfer
-                        } else {
-                            return false
-                        }})
-                    .filter({ $0.operation?.contract.flatMap { token.contractAddress.sameContract(as: $0) } ?? false })
+                    .filter({ TokenViewControllerViewModel.filterTransactionsForERC20Token(transaction: $0, tokenObject: token) })
                     .prefix(3))
-        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+                    .map { TransactionInstance(transaction: $0) }
+            
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
             self.recentTransactions = []
         }
     }
 
+    private static func filterTransactionsForNativeCryptocurrency(transaction: Transaction) -> Bool {
+        (transaction.state == .completed || transaction.state == .pending) && (transaction.operation == nil) && (transaction.value != "" && transaction.value != "0")
+    }
+
+    private static func filterTransactionsForERC20Token(transaction: Transaction, tokenObject token: TokenObject) -> Bool {
+        (transaction.state == .completed || transaction.state == .pending) && transaction.localizedOperations.contains(where: { op in
+            op.operationType == .erc20TokenTransfer && (op.contract.flatMap({ token.contractAddress.sameContract(as: $0) }) ?? false)
+        })
+    }
+
     var destinationAddress: AlphaWallet.Address {
-        return transferType.contract
+        return transactionType.contract
     }
 
     var backgroundColor: UIColor {

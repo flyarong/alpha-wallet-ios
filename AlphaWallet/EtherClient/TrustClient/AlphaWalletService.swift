@@ -10,6 +10,10 @@ enum AlphaWalletService {
     case register(config: Config, device: PushDevice)
     case unregister(config: Config, device: PushDevice)
     case marketplace(config: Config, server: RPCServer)
+    case gasPriceEstimate
+    case oneInchTokens(config: Config)
+    case honeySwapTokens(config: Config)
+    case rampAssets(config: Config)
 
     enum SortOrder: String {
         case asc
@@ -28,6 +32,14 @@ extension AlphaWalletService: TargetType {
             return config.priceInfoEndpoints
         case .marketplace(let config, _):
             return config.priceInfoEndpoints
+        case .gasPriceEstimate:
+            return URL(string: Constants.gasNowEndpointBaseUrl)!
+        case .oneInchTokens(let config):
+            return config.oneInch
+        case .honeySwapTokens(let config):
+            return config.honeySwapTokens
+        case .rampAssets(let config):
+            return URL(string: "https://api-instant.ramp.network")!
         }
     }
 
@@ -35,7 +47,7 @@ extension AlphaWalletService: TargetType {
         switch self {
         case .getTransactions(_, let server, _, _, _, _):
             switch server {
-            case .main, .classic, .callisto, .kovan, .ropsten, .custom, .rinkeby, .poa, .sokol, .goerli, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet:
+            case .main, .classic, .callisto, .kovan, .ropsten, .custom, .rinkeby, .poa, .sokol, .goerli, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
                 return "/api"
             }
         case .register:
@@ -43,11 +55,19 @@ extension AlphaWalletService: TargetType {
         case .unregister:
             return "/push/unregister"
         case .priceOfEth:
-            return "/api/v3/coins/markets" 
+            return "/api/v3/coins/markets"
         case .priceOfDai:
             return "/api/v3/coins/markets"
         case .marketplace:
             return "/marketplace"
+        case .gasPriceEstimate:
+            return "/api/v3/gas/price"
+        case .oneInchTokens:
+            return "/v1.1/tokens"
+        case .honeySwapTokens:
+            return ""
+        case .rampAssets:
+            return "/api/host-api/assets"
         }
     }
 
@@ -59,6 +79,10 @@ extension AlphaWalletService: TargetType {
         case .priceOfEth: return .get
         case .priceOfDai: return .get
         case .marketplace: return .get
+        case .gasPriceEstimate: return .get
+        case .oneInchTokens: return .get
+        case .honeySwapTokens: return .get
+        case .rampAssets: return .get
         }
     }
 
@@ -76,7 +100,7 @@ extension AlphaWalletService: TargetType {
                     "sort": sortOrder.rawValue,
                     "apikey": Constants.Credentials.etherscanKey,
                 ], encoding: URLEncoding())
-            case .classic, .callisto, .custom, .poa, .sokol, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet:
+            case .classic, .callisto, .custom, .poa, .sokol, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
                 return .requestParameters(parameters: [
                     "module": "account",
                     "action": "txlist",
@@ -92,16 +116,20 @@ extension AlphaWalletService: TargetType {
             return .requestJSONEncodable(device)
         case .priceOfEth:
             return .requestParameters(parameters: [
-                "vs_currency": "USD", 
+                "vs_currency": "USD",
                 "ids": "ethereum",
             ], encoding: URLEncoding())
         case .priceOfDai:
             return .requestParameters(parameters: [
-                "vs_currency": "USD", 
+                "vs_currency": "USD",
                 "ids": "dai",
             ], encoding: URLEncoding())
         case .marketplace(_, let server):
             return .requestParameters(parameters: ["chainID": server.chainID], encoding: URLEncoding())
+        case .gasPriceEstimate:
+            return .requestPlain
+        case .oneInchTokens, .honeySwapTokens, .rampAssets:
+            return .requestPlain
         }
     }
 
@@ -113,19 +141,21 @@ extension AlphaWalletService: TargetType {
         switch self {
         case .getTransactions(_, let server, _, _, _, _):
             switch server {
-            case .main, .classic, .callisto, .kovan, .ropsten, .custom, .rinkeby, .poa, .sokol, .goerli, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet:
+            case .main, .classic, .callisto, .kovan, .ropsten, .custom, .rinkeby, .poa, .sokol, .goerli, .xDai, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
                 return [
                     "Content-type": "application/json",
                     "client": Bundle.main.bundleIdentifier ?? "",
                     "client-build": Bundle.main.buildNumber ?? "",
                 ]
             }
-        case .priceOfEth, .priceOfDai, .register, .unregister, .marketplace:
+        case .priceOfEth, .priceOfDai, .register, .unregister, .marketplace, .gasPriceEstimate:
             return [
                 "Content-type": "application/json",
                 "client": Bundle.main.bundleIdentifier ?? "",
                 "client-build": Bundle.main.buildNumber ?? "",
             ]
+        case .oneInchTokens, .honeySwapTokens, .rampAssets:
+            return nil
         }
     }
 }

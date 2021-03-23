@@ -19,7 +19,20 @@ extension Data {
         return "0x" + self.hex()
     }
 
-    init(hex: String) {
+    init(_hex value: String, chunkSize: Int) {
+        if value.count > chunkSize {
+            self = value.chunked(into: chunkSize).reduce(NSMutableData()) { result, chunk -> NSMutableData in
+                let part = Data(_hex: String(chunk))
+                result.append(part)
+
+                return result
+            } as Data
+        } else {
+            self = Data(_hex: value)
+        }
+    }
+    //NOTE: renamed to `_hex` because CryptoSwift has its own implementation of `.init(hex:)` that instantiates Data() object with additionaly byte at the end. That brokes `signing` in app. Not sure that this is good name. 
+    init(_hex hex: String) {
         let len = hex.count / 2
         var data = Data(capacity: len)
         for i in 0..<len {

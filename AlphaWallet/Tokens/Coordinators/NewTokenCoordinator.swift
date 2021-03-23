@@ -33,6 +33,7 @@ class NewTokenCoordinator: Coordinator {
     private let singleChainTokenCoordinators: [SingleChainTokenCoordinator]
     private let config: Config
     private let tokenCollection: TokenCollection
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let navigationController: UINavigationController
     private lazy var viewController: NewTokenViewController = .init(server: serverToAddCustomTokenOn, initialState: initialState)
     private let initialState: NewTokenInitialState
@@ -40,8 +41,9 @@ class NewTokenCoordinator: Coordinator {
     var coordinators: [Coordinator] = []
     weak var delegate: NewTokenCoordinatorDelegate?
 
-    init(navigationController: UINavigationController, tokenCollection: TokenCollection, config: Config, singleChainTokenCoordinators: [SingleChainTokenCoordinator], initialState: NewTokenInitialState = .empty, sessions: ServerDictionary<WalletSession>) {
+    init(analyticsCoordinator: AnalyticsCoordinator, navigationController: UINavigationController, tokenCollection: TokenCollection, config: Config, singleChainTokenCoordinators: [SingleChainTokenCoordinator], initialState: NewTokenInitialState = .empty, sessions: ServerDictionary<WalletSession>) {
         self.config = config
+        self.analyticsCoordinator = analyticsCoordinator
         self.navigationController = navigationController
         self.tokenCollection = tokenCollection
         self.singleChainTokenCoordinators = singleChainTokenCoordinators
@@ -63,14 +65,10 @@ class NewTokenCoordinator: Coordinator {
     }
 
     private func showServers(inViewController viewController: UIViewController) {
-        let coordinator = ServersCoordinator(defaultServer: serverToAddCustomTokenOn, config: config)
+        let coordinator = ServersCoordinator(defaultServer: serverToAddCustomTokenOn, config: config, navigationController: navigationController)
         coordinator.delegate = self
         coordinator.start()
         addCoordinator(coordinator)
-
-        let navigationController = UINavigationController(rootViewController: coordinator.serversViewController)
-        navigationController.makePresentationFullScreenForiOS13Migration()
-        viewController.present(navigationController, animated: true)
     }
 }
 
@@ -78,7 +76,7 @@ extension NewTokenCoordinator: ServersCoordinatorDelegate {
 
     func didSelectServer(server: RPCServerOrAuto, in coordinator: ServersCoordinator) {
         serverToAddCustomTokenOn = server
-        coordinator.serversViewController.navigationController?.dismiss(animated: true) { [weak self] in
+        coordinator.navigationController.popViewController(animated: true) { [weak self] in
             guard let strongSelf = self else { return }
             strongSelf.viewController.server = strongSelf.serverToAddCustomTokenOn
             strongSelf.viewController.configure()
@@ -89,7 +87,7 @@ extension NewTokenCoordinator: ServersCoordinatorDelegate {
     }
 
     func didSelectDismiss(in coordinator: ServersCoordinator) {
-        coordinator.serversViewController.navigationController?.dismiss(animated: true)
+        coordinator.navigationController.popViewController(animated: true)
         removeCoordinator(coordinator)
     }
 }
@@ -195,12 +193,12 @@ extension NewTokenCoordinator: NewTokenViewControllerDelegate {
     func openQRCode(in controller: NewTokenViewController) {
         guard let nc = controller.navigationController, nc.ensureHasDeviceAuthorization() else { return }
 
-        let session = sessions[config.server]
-        let coordinator = ScanQRCodeCoordinator(navigationController: navigationController, account: session.account, server: session.server)
+        let account = sessions.anyValue.account
+        let coordinator = ScanQRCodeCoordinator(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, account: account)
         coordinator.delegate = self
         addCoordinator(coordinator)
 
-        coordinator.start()
+        coordinator.start(fromSource: .addCustomTokenScreen)
     }
 }
 

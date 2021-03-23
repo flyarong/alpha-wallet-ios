@@ -5,11 +5,18 @@ import UIKit
 class DefaultActivityItemViewCell: UITableViewCell {
     private let background = UIView()
     private let tokenImageView = TokenImageView()
-    private let stateImageView = UIImageView()
+    private let stateView: ActivityStateView = {
+        let view = ActivityStateView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        return view
+    }()
+
     private let titleLabel = UILabel()
     private let amountLabel = UILabel()
     private let subTitleLabel = UILabel()
     private let timestampLabel = UILabel()
+    private var leftEdgeConstraint: NSLayoutConstraint = .init()
     private var viewModel: DefaultActivityCellViewModel?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -19,9 +26,6 @@ class DefaultActivityItemViewCell: UITableViewCell {
         background.translatesAutoresizingMaskIntoConstraints = false
 
         tokenImageView.contentMode = .scaleAspectFit
-
-        stateImageView.translatesAutoresizingMaskIntoConstraints = false
-        stateImageView.contentMode = .scaleAspectFit
 
         subTitleLabel.lineBreakMode = .byTruncatingMiddle
 
@@ -50,7 +54,9 @@ class DefaultActivityItemViewCell: UITableViewCell {
         stackView.setContentHuggingPriority(UILayoutPriority.required, for: .horizontal)
 
         background.addSubview(stackView)
-        background.addSubview(stateImageView)
+        background.addSubview(stateView)
+
+        leftEdgeConstraint = stackView.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: StyleLayout.sideMargin)
 
         NSLayoutConstraint.activate([
             timestampLabel.heightAnchor.constraint(equalToConstant: 20),
@@ -58,17 +64,15 @@ class DefaultActivityItemViewCell: UITableViewCell {
             tokenImageView.heightAnchor.constraint(equalToConstant: 40),
             tokenImageView.widthAnchor.constraint(equalToConstant: 40),
 
-            stateImageView.heightAnchor.constraint(equalToConstant: 16),
-            stateImageView.widthAnchor.constraint(equalToConstant: 16),
-            stateImageView.trailingAnchor.constraint(equalTo: tokenImageView.trailingAnchor, constant: -2),
-            stateImageView.bottomAnchor.constraint(equalTo: tokenImageView.bottomAnchor, constant: -2),
-
-            stackView.anchorsConstraint(to: background, edgeInsets: .init(top: 14, left: StyleLayout.sideMargin, bottom: 14, right: StyleLayout.sideMargin)),
+            leftEdgeConstraint,
+            stackView.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -StyleLayout.sideMargin),
+            stackView.topAnchor.constraint(equalTo: background.topAnchor, constant: 14),
+            stackView.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -14),
 
             background.anchorsConstraint(to: contentView),
 
             contentView.heightAnchor.constraint(equalToConstant: 80)
-        ])
+        ] + stateView.anchorConstraints(to: tokenImageView))
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -77,6 +81,9 @@ class DefaultActivityItemViewCell: UITableViewCell {
 
     func configure(viewModel: DefaultActivityCellViewModel) {
         self.viewModel = viewModel
+
+        leftEdgeConstraint.constant = viewModel.leftMargin
+        separatorInset = .init(top: 0, left: viewModel.leftMargin, bottom: 0, right: 0)
 
         selectionStyle = .none
         background.backgroundColor = viewModel.contentsBackgroundColor
@@ -95,11 +102,10 @@ class DefaultActivityItemViewCell: UITableViewCell {
         timestampLabel.font = viewModel.timestampFont
         timestampLabel.text = viewModel.timestamp
 
-        amountLabel.text = viewModel.amount
-        amountLabel.font = viewModel.amountFont
-        amountLabel.textColor = viewModel.amountColor
+        amountLabel.attributedText = viewModel.amount
 
         tokenImageView.subscribable = viewModel.iconImage
-        stateImageView.image = viewModel.stateImage
+
+        stateView.configure(viewModel: viewModel.activityStateViewViewModel)
     }
 }

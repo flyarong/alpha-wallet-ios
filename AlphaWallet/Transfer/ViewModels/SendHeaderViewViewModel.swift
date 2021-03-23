@@ -4,17 +4,17 @@ import UIKit
 
 struct SendHeaderViewViewModel {
     private let token: TokenObject
-    private let transferType: TransferType
+    private let transactionType: TransactionType
     let server: RPCServer
     var title: String
     var ticker: CoinTicker?
     var currencyAmount: String?
     var isShowingValue: Bool = true
 
-    init(server: RPCServer, token: TokenObject, transferType: TransferType) {
+    init(server: RPCServer, token: TokenObject, transactionType: TransactionType) {
         self.server = server
         self.token = token
-        self.transferType = transferType
+        self.transactionType = transactionType
         title = ""
         ticker = nil
         currencyAmount = nil
@@ -45,7 +45,7 @@ struct SendHeaderViewViewModel {
 
     var titleAttributedString: NSAttributedString {
         return NSAttributedString(string: title, attributes: [
-            .font: Fonts.regular(size: ScreenChecker().isNarrowScreen ? 26 : 36)!,
+            .font: Fonts.regular(size: ScreenChecker().isNarrowScreen ? 26 : 36),
             .foregroundColor: Colors.black
         ])
     }
@@ -54,14 +54,14 @@ struct SendHeaderViewViewModel {
         if server.isTestnet {
             return nil
         } else {
-            switch transferType {
+            switch transactionType {
             case .nativeCryptocurrency:
                 if isShowingValue {
                     return tokenValueAttributedString
                 } else {
                     return marketPriceAttributedString
                 }
-            case .ERC20Token, .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp:
+            case .ERC20Token, .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
                 return nil
             }
         }
@@ -92,7 +92,7 @@ struct SendHeaderViewViewModel {
 
         let range = NSRange(valuePercentageChangeRange, in: string)
         mutableAttributedString.setAttributes([
-            .font: Fonts.semibold(size: ScreenChecker().isNarrowScreen ? 14 : 17)!,
+            .font: Fonts.semibold(size: ScreenChecker().isNarrowScreen ? 14 : 17),
             .foregroundColor: Screen.TokenCard.Color.valueChangeValue(ticker: ticker)
         ], range: range)
 

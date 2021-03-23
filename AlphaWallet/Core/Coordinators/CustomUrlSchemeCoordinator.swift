@@ -4,7 +4,7 @@ import Foundation
 import BigInt
 import PromiseKit
 
-protocol CustomUrlSchemeCoordinatorDelegate: class {
+protocol CustomUrlSchemeCoordinatorResolver: class {
     func openSendPaymentFlow(_ paymentFlow: PaymentFlow, server: RPCServer, inCoordinator coordinator: CustomUrlSchemeCoordinator)
 }
 
@@ -13,7 +13,7 @@ class CustomUrlSchemeCoordinator: Coordinator {
     private let assetDefinitionStore: AssetDefinitionStore
 
     var coordinators: [Coordinator] = []
-    weak var delegate: CustomUrlSchemeCoordinatorDelegate?
+    weak var delegate: CustomUrlSchemeCoordinatorResolver?
 
     init(tokensDatastores: ServerDictionary<TokensDataStore>, assetDefinitionStore: AssetDefinitionStore) {
         self.tokensDatastores = tokensDatastores
@@ -21,7 +21,6 @@ class CustomUrlSchemeCoordinator: Coordinator {
     }
 
     /// Return true if handled
-    //TODO We aren't returning true/false accurately since we use a promise here
     func handleOpen(url: URL) -> Bool {
         guard let scheme = url.scheme, scheme == Eip681Parser.scheme else { return false }
         guard let result = QRCodeValueParser.from(string: url.absoluteString) else { return false }
@@ -80,7 +79,7 @@ class CustomUrlSchemeCoordinator: Coordinator {
         } else {
             amountConsideringDecimals = ""
         }
-        let transferType = TransferType(token: tokenObject, recipient: recipient, amount: amountConsideringDecimals)
-        delegate?.openSendPaymentFlow(.send(type: transferType), server: server, inCoordinator: self)
+        let transactionType = TransactionType(token: tokenObject, recipient: recipient, amount: amountConsideringDecimals)
+        delegate?.openSendPaymentFlow(.send(type: transactionType), server: server, inCoordinator: self)
     }
 }

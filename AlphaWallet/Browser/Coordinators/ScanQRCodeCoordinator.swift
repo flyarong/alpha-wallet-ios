@@ -11,16 +11,18 @@ protocol ScanQRCodeCoordinatorDelegate: class {
 }
 
 final class ScanQRCodeCoordinator: NSObject, Coordinator {
+    private let analyticsCoordinator: AnalyticsCoordinator
     private lazy var navigationController = UINavigationController(rootViewController: qrcodeController)
     private lazy var reader = QRCodeReader(metadataObjectTypes: [AVMetadataObject.ObjectType.qr])
     private lazy var qrcodeController: QRCodeReaderViewController = {
+        let shouldShowMyQRCodeButton = account != nil
         let controller = QRCodeReaderViewController(
             cancelButtonTitle: nil,
             codeReader: reader,
             startScanningAtLoad: true,
             showSwitchCameraButton: false,
             showTorchButton: true,
-            showMyQRCodeButton: true,
+            showMyQRCodeButton: shouldShowMyQRCodeButton,
             chooseFromPhotoLibraryButtonTitle: R.string.localizable.photos(),
             bordersColor: Colors.qrCodeRectBorders,
             messageText: R.string.localizable.qrCodeTitle(),
@@ -37,26 +39,27 @@ final class ScanQRCodeCoordinator: NSObject, Coordinator {
 
         return controller
     }()
-    private let account: Wallet
-    private let server: RPCServer
+    private let account: Wallet?
 
     let parentNavigationController: UINavigationController
     var coordinators: [Coordinator] = []
     weak var delegate: ScanQRCodeCoordinatorDelegate?
 
-    init(navigationController: UINavigationController, account: Wallet, server: RPCServer) {
+    init(analyticsCoordinator: AnalyticsCoordinator, navigationController: UINavigationController, account: Wallet?) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.account = account
-        self.server = server
         self.parentNavigationController = navigationController
     }
 
-    func start() {
+    func start(fromSource source: Analytics.ScanQRCodeSource) {
+        logStartScan(source: source)
         navigationController.makePresentationFullScreenForiOS13Migration()
         parentNavigationController.present(navigationController, animated: true)
     }
 
     @objc private func dismiss() {
         stopScannerAndDismiss {
+            self.analyticsCoordinator.log(action: Analytics.Action.cancelScanQrCode)
             self.delegate?.didCancel(in: self)
         }
     }
@@ -71,25 +74,25 @@ extension ScanQRCodeCoordinator: QRCodeReaderDelegate {
 
     func readerDidCancel(_ reader: QRCodeReaderViewController!) {
         stopScannerAndDismiss {
+            self.analyticsCoordinator.log(action: Analytics.Action.cancelScanQrCode)
             self.delegate?.didCancel(in: self)
         }
     }
 
     func reader(_ reader: QRCodeReaderViewController!, didScanResult result: String!) {
         stopScannerAndDismiss {
+            self.logCompleteScan(result: result)
             self.delegate?.didScan(result: result, in: self)
         }
     }
 
     func reader(_ reader: QRCodeReaderViewController!, myQRCodeSelected sender: UIButton!) {
-        let coordinator = RequestCoordinator(account: account, server: server)
+        //Showing QR code functionality is not available if there's no account, specifically when importing wallet during onboarding
+        guard let account = account else { return }
+        let coordinator = RequestCoordinator(navigationController: navigationController, account: account)
         coordinator.delegate = self
         coordinator.start()
         addCoordinator(coordinator)
-
-        coordinator.navigationController.makePresentationFullScreenForiOS13Migration()
-
-        navigationController.present(coordinator.navigationController, animated: true)
     }
 }
 
@@ -98,7 +101,7 @@ extension ScanQRCodeCoordinator: RequestCoordinatorDelegate {
     func didCancel(in coordinator: RequestCoordinator) {
         removeCoordinator(coordinator)
 
-        coordinator.navigationController.dismiss(animated: true)
+        coordinator.navigationController.popViewController(animated: true)
     }
 }
 
@@ -110,5 +113,49 @@ extension UIBarButtonItem {
 
     static func closeBarButton(_ target: AnyObject, selector: Selector) -> UIBarButtonItem {
         return .init(image: R.image.close(), style: .plain, target: target, action: selector)
+    }
+
+    static func backBarButton(_ target: AnyObject, selector: Selector) -> UIBarButtonItem {
+        return .init(image: R.image.backWhite(), style: .plain, target: target, action: selector)
+    }
+}
+
+//MARK: Analytics
+extension ScanQRCodeCoordinator {
+    private func logCompleteScan(result: String) {
+        let resultType = convertToAnalyticsResultType(value: result)
+        analyticsCoordinator.log(action: Analytics.Action.completeScanQrCode, properties: [Analytics.Properties.resultType.rawValue: resultType.rawValue])
+    }
+
+    private func convertToAnalyticsResultType(value: String!) -> Analytics.ScanQRCodeResultType {
+        if let resultType = QRCodeValueParser.from(string: value) {
+            switch resultType {
+            case .address:
+                return .address
+            case .eip681:
+                break
+            }
+        }
+
+        switch ScanQRCodeResolution(rawValue: value) {
+        case .value:
+            return .value
+        case .other:
+            return .other
+        case .walletConnect:
+            return .walletConnect
+        case .url:
+            return .url
+        case .json:
+            return .json
+        case .privateKey:
+            return .privateKey
+        case .seedPhase:
+            return .seedPhase
+        }
+    }
+
+    private func logStartScan(source: Analytics.ScanQRCodeSource) {
+        analyticsCoordinator.log(navigation: Analytics.Navigation.scanQrCode, properties: [Analytics.Properties.source.rawValue: source.rawValue])
     }
 }

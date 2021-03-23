@@ -81,6 +81,7 @@ class TokensDataStore {
     private var isFetchingPrices = false
     private let config: Config
     private let openSea: OpenSea
+    private let queue = DispatchQueue.global()
 
     let server: RPCServer
     weak var delegate: TokensDataStoreDelegate?
@@ -98,23 +99,23 @@ class TokensDataStore {
 
     //TODO might be good to change `enabledObject` to just return the streaming list from Realm instead of a Swift native Array and other properties/callers can convert to Array if necessary
     var enabledObject: [TokenObject] {
-        return Array(realm.objects(TokenObject.self)
+        return Array(realm.threadSafe.objects(TokenObject.self)
                 .filter("chainId = \(self.chainId)")
                 .filter("isDisabled = false"))
     }
 
     var deletedContracts: [DeletedContract] {
-        return Array(realm.objects(DeletedContract.self)
+        return Array(realm.threadSafe.objects(DeletedContract.self)
                 .filter("chainId = \(self.chainId)"))
     }
 
     var delegateContracts: [DelegateContract] {
-        return Array(realm.objects(DelegateContract.self)
+        return Array(realm.threadSafe.objects(DelegateContract.self)
                 .filter("chainId = \(self.chainId)"))
     }
 
     var hiddenContracts: [HiddenContract] {
-        return Array(realm.objects(HiddenContract.self)
+        return Array(realm.threadSafe.objects(HiddenContract.self)
                 .filter("chainId = \(self.chainId)"))
     }
 
@@ -437,6 +438,12 @@ class TokensDataStore {
         }
     }
 
+    func tokenThreadSafe(forContract contract: AlphaWallet.Address) -> TokenObject? {
+        realm.threadSafe.objects(TokenObject.self)
+                .filter("contract = '\(contract.eip55String)'")
+                .filter("chainId = \(chainId)").first
+    }
+
     func token(forContract contract: AlphaWallet.Address) -> TokenObject? {
         realm.objects(TokenObject.self)
                 .filter("contract = '\(contract.eip55String)'")
@@ -551,7 +558,7 @@ class TokensDataStore {
                         anyNonFungible = each
                         listOfJson.append(jsonString)
                     } else {
-                        NSLog("Failed to convert ERC721 token from OpenSea to JSON")
+                        //no op
                     }
                 }
 
@@ -581,9 +588,7 @@ class TokensDataStore {
                 }
             }
             strongSelf.updateDelegate()
-        }.catch {
-            NSLog("Failed to retrieve tokens from OpenSea: \($0)")
-        }
+        }.cauterize()
     }
 
     func refreshETHBalance() {
@@ -640,28 +645,28 @@ class TokensDataStore {
         guard let priceToUpdate = getPriceToUpdate() else { return }
         guard !isFetchingPrices else { return }
         isFetchingPrices = true
-        provider.request(priceToUpdate) { [weak self] result in
-            guard let strongSelf = self else { return }
-            defer {
-                strongSelf.isFetchingPrices = false
+
+        firstly {
+            provider.request(priceToUpdate)
+        }.map { response -> [AlphaWallet.Address: CoinTicker] in
+            let tickers = try response.map([CoinTicker].self, using: JSONDecoder())
+            let tempTickers = tickers.reduce([String: CoinTicker]()) { (dict, ticker) -> [String: CoinTicker] in
+                var dict = dict
+                dict[ticker.contract] = ticker
+                return dict
             }
-            guard case .success(let response) = result else { return }
-            do {
-                let tickers = try response.map([CoinTicker].self, using: JSONDecoder())
-                let tempTickers = tickers.reduce([String: CoinTicker]()) { (dict, ticker) -> [String: CoinTicker] in
-                    var dict = dict
-                    dict[ticker.contract] = ticker
-                    return dict
-                }
-                var resultTickers = [AlphaWallet.Address: CoinTicker]()
-                for (contract, ticker) in tempTickers {
-                    guard let contractAddress = AlphaWallet.Address(uncheckedAgainstNullAddress: contract) else { continue }
-                    resultTickers[contractAddress] = ticker
-                }
-                strongSelf.tickers = resultTickers
-                //TODO is it better if we pass in an enum to indicate what's the change? if crypto price change, we only need to refresh the native crypto currency cards?
-                strongSelf.updateDelegate()
-            } catch { }
+            var resultTickers = [AlphaWallet.Address: CoinTicker]()
+            for (contract, ticker) in tempTickers {
+                guard let contractAddress = AlphaWallet.Address(uncheckedAgainstNullAddress: contract) else { continue }
+                resultTickers[contractAddress] = ticker
+            }
+
+            return resultTickers
+        }.done { [weak self] tickers in
+            self?.tickers = tickers
+            self?.updateDelegate()
+        }.cauterize().finally { [weak self] in
+            self?.isFetchingPrices = false
         }
     }
 
@@ -671,7 +676,7 @@ class TokensDataStore {
             return .priceOfEth(config: config)
         case .xDai:
             return .priceOfDai(config: config)
-        case .kovan, .ropsten, .rinkeby, .poa, .sokol, .classic, .callisto, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom:
+        case .kovan, .ropsten, .rinkeby, .poa, .sokol, .classic, .callisto, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
             return nil
         }
     }
@@ -767,7 +772,7 @@ class TokensDataStore {
         case .nonFungibleBalance(let balance):
             //Performance: if we use realm.write {} directly, the UI will block for a few seconds because we are reading from Realm, appending to an array and writing back to Realm many times (once for each token) in the main thread. Instead, we do this for each token in a background thread
             let primaryKey = token.primaryKey
-            DispatchQueue.global().async {
+            queue.async {
                 let realmInBackground = try! Realm(configuration: self.realm.configuration)
                 let token = realmInBackground.object(ofType: TokenObject.self, forPrimaryKey: primaryKey)!
                 var newBalance = [TokenBalance]()
@@ -861,3 +866,9 @@ class TokensDataStore {
     }
 }
 // swiftlint:enable type_body_length
+
+extension Realm {
+    var threadSafe: Realm {
+         try! Realm(configuration: self.configuration)
+    }
+}

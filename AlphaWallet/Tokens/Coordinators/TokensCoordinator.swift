@@ -5,9 +5,10 @@ import UIKit
 import PromiseKit
 
 protocol TokensCoordinatorDelegate: class, CanOpenURL {
-    func didPressErc20ExchangeOnUniswap(for holder: UniswapHolder, in coordinator: TokensCoordinator)
+    func didTapSwap(forTransactionType transactionType: TransactionType, service: SwapTokenURLProviderType, in coordinator: TokensCoordinator)
+    func shouldOpen(url: URL, shouldSwitchServer: Bool, forTransactionType transactionType: TransactionType, in coordinator: TokensCoordinator)
     func didPress(for type: PaymentFlow, server: RPCServer, in coordinator: TokensCoordinator)
-    func didTap(transaction: Transaction, inViewController viewController: UIViewController, in coordinator: TokensCoordinator)
+    func didTap(transaction: TransactionInstance, inViewController viewController: UIViewController, in coordinator: TokensCoordinator)
     func openConsole(inCoordinator coordinator: TokensCoordinator)
     func didPostTokenScriptTransaction(_ transaction: SentTransaction, in coordinator: TokensCoordinator)
 }
@@ -25,7 +26,8 @@ class TokensCoordinator: Coordinator {
     private let eventsDataStore: EventsDataStoreProtocol
     private let promptBackupCoordinator: PromptBackupCoordinator
     private let filterTokensCoordinator: FilterTokensCoordinator
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
+    private let tokenActionsService: TokenActionsServiceType
     private var serverToAddCustomTokenOn: RPCServerOrAuto = .auto {
         didSet {
             switch serverToAddCustomTokenOn {
@@ -51,12 +53,14 @@ class TokensCoordinator: Coordinator {
 
     private lazy var tokensViewController: TokensViewController = {
         let controller = TokensViewController(
-                sessions: sessions,
-                account: sessions.anyValue.account,
-                tokenCollection: tokenCollection,
-                assetDefinitionStore: assetDefinitionStore,
-                eventsDataStore: eventsDataStore,
-                filterTokensCoordinator: filterTokensCoordinator
+            sessions: sessions,
+            account: sessions.anyValue.account,
+            tokenCollection: tokenCollection,
+            assetDefinitionStore: assetDefinitionStore,
+            eventsDataStore: eventsDataStore,
+            filterTokensCoordinator: filterTokensCoordinator,
+            config: config,
+            walletConnectCoordinator: walletConnectCoordinator
         )
         controller.delegate = self
         return controller
@@ -67,11 +71,11 @@ class TokensCoordinator: Coordinator {
     private var singleChainTokenCoordinators: [SingleChainTokenCoordinator] {
         return coordinators.compactMap { $0 as? SingleChainTokenCoordinator }
     }
-
+    private let walletConnectCoordinator: WalletConnectCoordinator
     let navigationController: UINavigationController
     var coordinators: [Coordinator] = []
     weak var delegate: TokensCoordinatorDelegate?
-
+    private let transactionsStorages: ServerDictionary<TransactionsStorage>
     lazy var rootViewController: TokensViewController = {
         return tokensViewController
     }()
@@ -87,7 +91,10 @@ class TokensCoordinator: Coordinator {
             eventsDataStore: EventsDataStoreProtocol,
             promptBackupCoordinator: PromptBackupCoordinator,
             filterTokensCoordinator: FilterTokensCoordinator,
-            analyticsCoordinator: AnalyticsCoordinator?
+            analyticsCoordinator: AnalyticsCoordinator,
+            tokenActionsService: TokenActionsServiceType,
+            walletConnectCoordinator: WalletConnectCoordinator,
+            transactionsStorages: ServerDictionary<TransactionsStorage>
     ) {
         self.filterTokensCoordinator = filterTokensCoordinator
         self.navigationController = navigationController
@@ -101,6 +108,9 @@ class TokensCoordinator: Coordinator {
         self.eventsDataStore = eventsDataStore
         self.promptBackupCoordinator = promptBackupCoordinator
         self.analyticsCoordinator = analyticsCoordinator
+        self.tokenActionsService = tokenActionsService
+        self.walletConnectCoordinator = walletConnectCoordinator
+        self.transactionsStorages = transactionsStorages
         promptBackupCoordinator.prominentPromptDelegate = self
         setupSingleChainTokenCoordinators()
     }
@@ -118,7 +128,8 @@ class TokensCoordinator: Coordinator {
             let server = each.server
             let session = sessions[server]
             let price = nativeCryptoCurrencyPrices[server]
-            let coordinator = SingleChainTokenCoordinator(session: session, keystore: keystore, tokensStorage: each, ethPrice: price, assetDefinitionStore: assetDefinitionStore, eventsDataStore: eventsDataStore, analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, withAutoDetectTransactedTokensQueue: autoDetectTransactedTokensQueue, withAutoDetectTokensQueue: autoDetectTokensQueue)
+            let transactionsStorage = transactionsStorages[server]
+            let coordinator = SingleChainTokenCoordinator(session: session, keystore: keystore, tokensStorage: each, ethPrice: price, assetDefinitionStore: assetDefinitionStore, eventsDataStore: eventsDataStore, analyticsCoordinator: analyticsCoordinator, withAutoDetectTransactedTokensQueue: autoDetectTransactedTokensQueue, withAutoDetectTokensQueue: autoDetectTokensQueue, tokenActionsProvider: tokenActionsService, transactionsStorage: transactionsStorage)
             coordinator.delegate = self
             addCoordinator(coordinator)
         }
@@ -147,20 +158,24 @@ class TokensCoordinator: Coordinator {
         tokensViewController.listOfBadTokenScriptFiles = fileNames
     }
 
-    func launchUniversalScanner() {
-        let session = sessions[config.server]
-        let scanQRCodeCoordinator = ScanQRCodeCoordinator(navigationController: navigationController, account: session.account, server: session.server)
+    func launchUniversalScanner(fromSource source: Analytics.ScanQRCodeSource) {
+        let account = sessions.anyValue.account
+        let scanQRCodeCoordinator = ScanQRCodeCoordinator(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, account: account)
         let tokensDatastores = tokenCollection.tokenDataStores
 
-        let coordinator = QRCodeResolutionCoordinator(coordinator: scanQRCodeCoordinator, tokensDatastores: tokensDatastores, assetDefinitionStore: assetDefinitionStore)
+        let coordinator = QRCodeResolutionCoordinator(config: config, coordinator: scanQRCodeCoordinator, usage: .all(tokensDatastores: tokensDatastores, assetDefinitionStore: assetDefinitionStore))
         coordinator.delegate = self
 
         addCoordinator(coordinator)
-        coordinator.start()
+        coordinator.start(fromSource: source)
     }
 }
 
 extension TokensCoordinator: TokensViewControllerDelegate {
+    func walletConnectSelected(in viewController: UIViewController) {
+        walletConnectCoordinator.showSessionDetails(in: navigationController)
+    }
+
     func didPressAddHideTokens(viewModel: TokensViewModel) {
         let coordinator: AddHideTokensCoordinator = .init(
             tokens: viewModel.tokens,
@@ -168,6 +183,7 @@ extension TokensCoordinator: TokensViewControllerDelegate {
             filterTokensCoordinator: filterTokensCoordinator,
             tickers: viewModel.tickers,
             sessions: sessions,
+            analyticsCoordinator: analyticsCoordinator,
             navigationController: navigationController,
             tokenCollection: tokenCollection,
             config: config,
@@ -178,19 +194,23 @@ extension TokensCoordinator: TokensViewControllerDelegate {
         coordinator.start()
     }
 
-    func didSelect(token: TokenObject, in viewController: UIViewController) {
-        let server = token.server
-        guard let coordinator = singleChainTokenCoordinator(forServer: server) else { return }
+    func showSingleChainToken(token: TokenObject, in navigationController: UINavigationController) {
+        guard let coordinator = singleChainTokenCoordinator(forServer: token.server) else { return }
+
         switch token.type {
         case .nativeCryptocurrency:
-            coordinator.show(fungibleToken: token, transferType: .nativeCryptocurrency(token, destination: .none, amount: nil))
+            coordinator.show(fungibleToken: token, transactionType: .nativeCryptocurrency(token, destination: .none, amount: nil), navigationController: navigationController)
         case .erc20:
-            coordinator.show(fungibleToken: token, transferType: .ERC20Token(token, destination: nil, amount: nil))
+            coordinator.show(fungibleToken: token, transactionType: .ERC20Token(token, destination: nil, amount: nil), navigationController: navigationController)
         case .erc721:
-            coordinator.showTokenList(for: .send(type: .ERC721Token(token)), token: token)
+            coordinator.showTokenList(for: .send(type: .ERC721Token(token)), token: token, navigationController: navigationController)
         case .erc875, .erc721ForTickets:
-            coordinator.showTokenList(for: .send(type: .ERC875Token(token)), token: token)
+            coordinator.showTokenList(for: .send(type: .ERC875Token(token)), token: token, navigationController: navigationController)
         }
+    }
+
+    func didSelect(token: TokenObject, in viewController: UIViewController) {
+        showSingleChainToken(token: token, in: navigationController)
     }
 
     func didHide(token: TokenObject, in viewController: UIViewController) {
@@ -203,13 +223,7 @@ extension TokensCoordinator: TokensViewControllerDelegate {
     }
 
     func scanQRCodeSelected(in viewController: UIViewController) {
-        launchUniversalScanner()
-    }
-}
-
-func -<T: Equatable>(left: [T], right: [T]) -> [T] {
-    return left.filter { l in
-        !right.contains { $0 == l }
+        launchUniversalScanner(fromSource: .walletScreen)
     }
 }
 
@@ -235,14 +249,26 @@ extension TokensCoordinator: SelectAssetCoordinatorDelegate {
 
 extension TokensCoordinator: QRCodeResolutionCoordinatorDelegate {
 
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveJSON json: String) {
+        removeCoordinator(coordinator)
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveSeedPhase seedPhase: [String]) {
+        removeCoordinator(coordinator)
+    }
+
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolvePrivateKey privateKey: String) {
+        removeCoordinator(coordinator)
+    }
+
     func didCancel(in coordinator: QRCodeResolutionCoordinator) {
         removeCoordinator(coordinator)
     }
 
-    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveTransferType transferType: TransferType, token: TokenObject) {
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveTransactionType transactionType: TransactionType, token: TokenObject) {
         removeCoordinator(coordinator)
 
-        let paymentFlow = PaymentFlow.send(type: transferType)
+        let paymentFlow = PaymentFlow.send(type: transactionType)
 
         delegate?.didPress(for: paymentFlow, server: token.server, in: self)
     }
@@ -264,6 +290,7 @@ extension TokensCoordinator: QRCodeResolutionCoordinatorDelegate {
 
     private func handleAddCustomToken(_ address: AlphaWallet.Address) {
         let coordinator = NewTokenCoordinator(
+            analyticsCoordinator: analyticsCoordinator,
             navigationController: navigationController,
             tokenCollection: tokenCollection,
             config: config,
@@ -289,7 +316,8 @@ extension TokensCoordinator: QRCodeResolutionCoordinatorDelegate {
             assetDefinitionStore: assetDefinitionStore,
             sessions: sessions,
             tokenCollection: tokenCollection,
-            navigationController: navigationController
+            navigationController: navigationController,
+            filterTokensCoordinator: filterTokensCoordinator
         )
         coordinator.delegate = self
         addCoordinator(coordinator)
@@ -315,8 +343,9 @@ extension TokensCoordinator: QRCodeResolutionCoordinatorDelegate {
         delegate?.didPressOpenWebPage(url, in: tokensViewController)
     }
 
-    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveWalletConnectURL url: WCURL) {
+    func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveWalletConnectURL url: WalletConnectURL) {
         removeCoordinator(coordinator)
+        walletConnectCoordinator.openSession(url: url)
     }
 
     func coordinator(_ coordinator: QRCodeResolutionCoordinator, didResolveString value: String) {
@@ -352,8 +381,12 @@ extension TokensCoordinator: WalletCoordinatorDelegate {
 
 extension TokensCoordinator: SingleChainTokenCoordinatorDelegate {
 
-    func didPressErc20ExchangeOnUniswap(for holder: UniswapHolder, in coordinator: SingleChainTokenCoordinator) {
-        delegate?.didPressErc20ExchangeOnUniswap(for: holder, in: self)
+    func didTapSwap(forTransactionType transactionType: TransactionType, service: SwapTokenURLProviderType, in coordinator: SingleChainTokenCoordinator) {
+        delegate?.didTapSwap(forTransactionType: transactionType, service: service, in: self)
+    }
+
+    func shouldOpen(url: URL, shouldSwitchServer: Bool, forTransactionType transactionType: TransactionType, in coordinator: SingleChainTokenCoordinator) {
+        delegate?.shouldOpen(url: url, shouldSwitchServer: shouldSwitchServer, forTransactionType: transactionType, in: self)
     }
 
     func tokensDidChange(inCoordinator coordinator: SingleChainTokenCoordinator) {
@@ -364,7 +397,7 @@ extension TokensCoordinator: SingleChainTokenCoordinatorDelegate {
         delegate?.didPress(for: type, server: coordinator.session.server, in: self)
     }
 
-    func didTap(transaction: Transaction, inViewController viewController: UIViewController, in coordinator: SingleChainTokenCoordinator) {
+    func didTap(transaction: TransactionInstance, inViewController viewController: UIViewController, in coordinator: SingleChainTokenCoordinator) {
         delegate?.didTap(transaction: transaction, inViewController: viewController, in: self)
     }
 

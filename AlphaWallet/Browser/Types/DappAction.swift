@@ -8,18 +8,21 @@ enum DappAction {
     case signMessage(String)
     case signPersonalMessage(String)
     case signTypedMessage([EthTypedData])
+    case signTypedMessageV3(EIP712TypedData)
     case signTransaction(UnconfirmedTransaction)
     case sendTransaction(UnconfirmedTransaction)
+    case sendRawTransaction(String)
+    case ethCall(from: String, to: String, data: String)
     case unknown
 }
 
 extension DappAction {
-    static func fromCommand(_ command: DappCommand, transfer: Transfer) -> DappAction {
+    static func fromCommand(_ command: DappCommand, server: RPCServer, transactionType: TransactionType) -> DappAction {
         switch command.name {
         case .signTransaction:
-            return .signTransaction(DappAction.makeUnconfirmedTransaction(command.object, transfer: transfer))
+            return .signTransaction(DappAction.makeUnconfirmedTransaction(command.object, server: server, transactionType: transactionType))
         case .sendTransaction:
-            return .sendTransaction(DappAction.makeUnconfirmedTransaction(command.object, transfer: transfer))
+            return .sendTransaction(DappAction.makeUnconfirmedTransaction(command.object, server: server, transactionType: transactionType))
         case .signMessage:
             let data = command.object["data"]?.value ?? ""
             return .signMessage(data)
@@ -27,14 +30,26 @@ extension DappAction {
             let data = command.object["data"]?.value ?? ""
             return .signPersonalMessage(data)
         case .signTypedMessage:
-            let array = command.object["data"]?.array ?? []
-            return .signTypedMessage(array)
+            if let data = command.object["data"] {
+                if let eip712Data = data.eip712v3And4Data {
+                    return .signTypedMessageV3(eip712Data)
+                } else {
+                    return .signTypedMessage(data.eip712PreV3Array)
+                }
+            } else {
+                return .signTypedMessage([])
+            }
+        case .ethCall:
+            let from = command.object["from"]?.value ?? ""
+            let to = command.object["to"]?.value ?? ""
+            let data = command.object["data"]?.value ?? ""
+            return .ethCall(from: from, to: to, data: data)
         case .unknown:
             return .unknown
         }
     }
 
-    private static func makeUnconfirmedTransaction(_ object: [String: DappCommandObjectValue], transfer: Transfer) -> UnconfirmedTransaction {
+    private static func makeUnconfirmedTransaction(_ object: [String: DappCommandObjectValue], server: RPCServer, transactionType: TransactionType) -> UnconfirmedTransaction {
         let to = AlphaWallet.Address(string: object["to"]?.value ?? "")
         let value = BigInt((object["value"]?.value ?? "0").drop0x, radix: 16) ?? BigInt()
         let nonce: BigInt? = {
@@ -49,23 +64,16 @@ extension DappAction {
             guard let value = object["gasPrice"]?.value else { return .none }
             return BigInt((value).drop0x, radix: 16)
         }()
-        let data = Data(hex: object["data"]?.value ?? "0x")
-
+        let data = Data(_hex: object["data"]?.value ?? "0x")
         return UnconfirmedTransaction(
-            transferType: transfer.type,
+            transactionType: transactionType,
             value: value,
-            to: to,
+            recipient: nil,
+            contract: to,
             data: data,
             gasLimit: gasLimit,
-            tokenId: nil,
             gasPrice: gasPrice,
-            nonce: nonce,
-            v: nil,
-            r: nil,
-            s: nil,
-            expiry: nil,
-            indices: nil,
-            tokenIds: nil
+            nonce: nonce
         )
     }
 

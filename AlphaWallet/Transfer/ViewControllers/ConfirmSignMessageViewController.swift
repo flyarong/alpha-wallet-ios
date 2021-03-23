@@ -11,10 +11,15 @@ protocol ConfirmSignMessageViewControllerDelegate: class {
 //TODO make more reusable as an alert?
 class ConfirmSignMessageViewController: UIViewController {
     private let background = UIView()
-	private let header = TokensCardViewControllerTitleHeader()
+    private let header = TokensCardViewControllerTitleHeader()
+    private let subtitleLabel = UILabel()
     private let detailsBackground = UIView()
-    private let singleMessageLabel = UILabel()
-    private let singleMessageScrollView = UIScrollView()
+    private let singleMessageTextView: UITextView = {
+        let textView = UITextView()
+        textView.contentInset = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        textView.isEditable = false
+        return textView
+    }()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let actionButton = UIButton()
     private let cancelButton = UIButton()
@@ -26,7 +31,7 @@ class ConfirmSignMessageViewController: UIViewController {
     }()
     private var tableViewContentSizeObserver: NSKeyValueObservation?
     lazy private var scrollViewHeightConstraint: NSLayoutConstraint = {
-        let constraint = singleMessageScrollView.heightAnchor.constraint(equalToConstant: 0)
+        let constraint = singleMessageTextView.heightAnchor.constraint(equalToConstant: 0)
         constraint.priority = .defaultHigh
         return constraint
     }()
@@ -55,14 +60,12 @@ class ConfirmSignMessageViewController: UIViewController {
         actionButton.addTarget(self, action: #selector(proceed), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(cancel), for: .touchUpInside)
 
-        singleMessageLabel.translatesAutoresizingMaskIntoConstraints = false
-        singleMessageScrollView.addSubview(singleMessageLabel)
-
         let stackView = [
-			header,
+            header,
+            subtitleLabel,
             .spacer(height: 20),
             tableView,
-            singleMessageScrollView,
+            singleMessageTextView,
             .spacer(height: 30),
             actionButton,
             .spacer(height: 10),
@@ -82,8 +85,8 @@ class ConfirmSignMessageViewController: UIViewController {
 
             detailsBackground.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             detailsBackground.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            detailsBackground.topAnchor.constraint(lessThanOrEqualTo: singleMessageScrollView.topAnchor, constant: -12),
-            detailsBackground.bottomAnchor.constraint(greaterThanOrEqualTo: singleMessageScrollView.bottomAnchor, constant: 12),
+            detailsBackground.topAnchor.constraint(lessThanOrEqualTo: singleMessageTextView.topAnchor, constant: 0),
+            detailsBackground.bottomAnchor.constraint(greaterThanOrEqualTo: singleMessageTextView.bottomAnchor, constant: 0),
 
             detailsBackground.topAnchor.constraint(lessThanOrEqualTo: tableView.topAnchor, constant: -12),
             detailsBackground.bottomAnchor.constraint(greaterThanOrEqualTo: tableView.bottomAnchor, constant: 12),
@@ -95,11 +98,6 @@ class ConfirmSignMessageViewController: UIViewController {
             cancelButton.heightAnchor.constraint(equalTo: actionButton.heightAnchor),
 
             stackView.anchorsConstraint(to: background, edgeInsets: .init(top: 16, left: 30, bottom: 16, right: 30)),
-
-            singleMessageLabel.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 30),
-            singleMessageLabel.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -30),
-            singleMessageLabel.topAnchor.constraint(equalTo: singleMessageScrollView.topAnchor),
-            singleMessageLabel.bottomAnchor.constraint(equalTo: singleMessageScrollView.bottomAnchor),
 
             background.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 42),
             background.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -42),
@@ -121,15 +119,23 @@ class ConfirmSignMessageViewController: UIViewController {
 
             header.configure(title: viewModel.headerTitle)
 
-            singleMessageLabel.textAlignment = .center
-            singleMessageLabel.numberOfLines = 0
-            singleMessageLabel.textColor = viewModel.singleMessageLabelTextColor
-            singleMessageLabel.font = viewModel.singleMessageLabelFont
-            singleMessageLabel.text = viewModel.singleMessageLabelText
+            subtitleLabel.textAlignment = .center
+            subtitleLabel.numberOfLines = 0
+            subtitleLabel.textColor = viewModel.subtitleColor
+            subtitleLabel.font = viewModel.subtitleFont
+            subtitleLabel.text = viewModel.subtitle
+
+            singleMessageTextView.font = viewModel.singleMessageLabelFont
+            singleMessageTextView.textAlignment = viewModel.singleMessageLabelTextAlignment
+            singleMessageTextView.textColor = viewModel.singleMessageLabelTextColor
+            singleMessageTextView.attributedText = viewModel.singleMessageLabelText
+            singleMessageTextView.backgroundColor = viewModel.detailsBackgroundBackgroundColor
+
             //We don't need to check if it's more than 1 line, the scroll indicator wouldn't flash if there's too little content
-            if !viewModel.singleMessageLabelText.isEmpty {
+            let str = viewModel.singleMessageLabelText?.string
+            if !str.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    self.singleMessageScrollView.flashScrollIndicators()
+                    self.singleMessageTextView.flashScrollIndicators()
                 }
             }
 
@@ -145,7 +151,7 @@ class ConfirmSignMessageViewController: UIViewController {
                 guard let newSize = change.newValue else { return }
                 strongSelf.tableViewHeightConstraint.constant = newSize.height
             }
-            scrollViewContentSizeObserver = singleMessageScrollView.observe(\UIScrollView.contentSize, options: [.new]) { [weak self] (_, change) in
+            scrollViewContentSizeObserver = singleMessageTextView.observe(\UITextView.contentSize, options: [.new]) { [weak self] (_, change) in
                 guard let strongSelf = self else { return }
                 guard let newSize = change.newValue else { return }
                 strongSelf.scrollViewHeightConstraint.constant = newSize.height

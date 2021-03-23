@@ -23,9 +23,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
         window = UIWindow(frame: UIScreen.main.bounds)
         //Necessary to make UIAlertController have the correct tint colors, despite already doing: `UIWindow.appearance().tintColor = Colors.appTint`
         window?.tintColor = Colors.appTint
+        
         do {
-            let keystore = try EtherKeystore(analyticsCoordinator: nil)
-            appCoordinator = AppCoordinator(window: window!, keystore: keystore)
+            //NOTE: we move AnalyticsService creation from AppCoordinator.init method to allow easily replace
+            let analyticsService = AnalyticsService()
+            let keystore = try EtherKeystore(analyticsCoordinator: analyticsService)
+
+            let navigationController = UINavigationController()
+            navigationController.view.backgroundColor = Colors.appWhite
+
+            appCoordinator = try AppCoordinator(window: window!, analyticsService: analyticsService, keystore: keystore, navigationController: navigationController)
             appCoordinator.start()
 
             if let shortcutItem = launchOptions?[UIApplication.LaunchOptionsKey.shortcutItem] as? UIApplicationShortcutItem, shortcutItem.type == Constants.launchShortcutKey {
@@ -35,7 +42,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
                 }
             }
         } catch {
-            print("EtherKeystore init issue.")
+
         }
         protectionCoordinator.didFinishLaunchingWithOptions()
 
@@ -113,7 +120,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
             let tokenInfo = String(format: "%02.2hhx", arguments: [deviceToken[i]])
             token.append(tokenInfo)
         }
-        print(token)
         UserDefaults.standard.set(token, forKey: "deviceTokenForSNS")
         /// Create a platform endpoint. In this case, the endpoint is a
         /// device endpoint ARN
@@ -128,12 +134,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
         #endif
 
         sns.createPlatformEndpoint(request!).continueWith(executor: AWSExecutor.mainThread(), block: { (task: AWSTask!) -> AnyObject? in
-            if task.error != nil {
-                print("Error: \(String(describing: task.error))")
-            } else {
+            if task.error == nil {
                 let createEndpointResponse = task.result! as AWSSNSCreateEndpointResponse
                 if let endpointArnForSNS = createEndpointResponse.endpointArn {
-                    print("endpointArn: \(endpointArnForSNS)")
                     UserDefaults.standard.set(endpointArnForSNS, forKey: "endpointArnForSNS")
                     //every user should subscribe to the security topic
                     self.subscribeToTopicSNS(token: token, topicEndpoint: self.SNSSecurityTopicEndpoint)
@@ -169,7 +172,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
     //TODO Handle SNS errors
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print(error.localizedDescription)
+        //no op
     }
 
     @discardableResult private func handleUniversalLink(url: URL) -> Bool {

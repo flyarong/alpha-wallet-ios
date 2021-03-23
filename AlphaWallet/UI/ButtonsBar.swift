@@ -66,7 +66,7 @@ enum ButtonsBarButtonType {
     case white
 }
 
-class BarButton: UIButton {
+class BarButton: TransitionButton {
 
     private var observation: NSKeyValueObservation?
     private var borderColorMap: [UInt: UIColor?] = [:]
@@ -74,7 +74,7 @@ class BarButton: UIButton {
 
     init() {
         super.init(frame: .zero)
-        self.observation = observe(\.isEnabled, options: [.old, .new]) { [weak self] object, change in
+        observation = observe(\.isEnabled, options: [.old, .new]) { [weak self] object, _ in
             guard let strongSelf = self else { return }
 
             for pair in strongSelf.borderColorMap where pair.key == object.state.rawValue {
@@ -84,7 +84,7 @@ class BarButton: UIButton {
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 
     func setBorderColor(_ color: UIColor?, for state: UIControl.State) {
@@ -103,7 +103,7 @@ class ButtonsBarBackgroundView: UIView {
     }()
     private var observation: NSKeyValueObservation?
 
-    init(buttonsBar: ButtonsBar, edgeInsets: UIEdgeInsets = DataEntry.Metric.ButtonsBar.insets) {
+    init(buttonsBar: ButtonsBar, edgeInsets: UIEdgeInsets = DataEntry.Metric.ButtonsBar.insets, separatorHeight: CGFloat = DataEntry.Metric.ButtonsBar.separatorHeight) {
         self.buttonsBar = buttonsBar
         super.init(frame: .zero)
 
@@ -116,7 +116,7 @@ class ButtonsBarBackgroundView: UIView {
             separatorLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             separatorLine.topAnchor.constraint(equalTo: topAnchor),
-            separatorLine.heightAnchor.constraint(equalToConstant: DataEntry.Metric.ButtonsBar.separatorHeight),
+            separatorLine.heightAnchor.constraint(equalToConstant: separatorHeight),
 
             buttonsBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: edgeInsets.left),
             buttonsBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -edgeInsets.right),
@@ -124,8 +124,8 @@ class ButtonsBarBackgroundView: UIView {
             buttonsBar.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -edgeInsets.bottom),
         ])
 
-        observation = buttonsBar.observe(\.buttons) { sender, _ in
-            self.isHidden = sender.buttons.isEmpty
+        observation = buttonsBar.observe(\.buttons) { [weak self] sender, _ in
+            self?.isHidden = sender.buttons.isEmpty
         }
     }
 
@@ -204,7 +204,7 @@ class ButtonsBar: UIView {
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 
     private func didUpdateView(with configuration: ButtonsBarConfiguration) {
@@ -214,7 +214,7 @@ class ButtonsBar: UIView {
         resetIsHiddenObservers()
 
         for view in buttonContainerViews {
-            let observation = view.childView.observe(\.displayButton, options: [.new]) { [weak self] object, change in
+            let observation = view.childView.observe(\.displayButton, options: [.new]) { [weak self] _, _ in
                 self?.updateButtonsTypes()
             }
             observations.append(observation)
@@ -400,7 +400,7 @@ private struct ButtonsBarViewModel {
     }
 
     var buttonFont: UIFont {
-        return Fonts.semibold(size: ScreenChecker().isNarrowScreen ? 16 : 20)!
+        return Fonts.semibold(size: ScreenChecker().isNarrowScreen ? 16 : 20)
     }
 
     var buttonBorderColor: UIColor = R.color.azure()!

@@ -8,10 +8,16 @@
 import UIKit
 
 class FilterTokensCoordinator {
-    private let assetDefinitionStore: AssetDefinitionStore
+    private enum FilterKeys: String {
+        case swap
+    }
 
-    init(assetDefinitionStore: AssetDefinitionStore) {
+    private let assetDefinitionStore: AssetDefinitionStore
+    private let tokenActionsService: TokenActionsServiceType
+
+    init(assetDefinitionStore: AssetDefinitionStore, tokenActionsService: TokenActionsServiceType) {
         self.assetDefinitionStore = assetDefinitionStore
+        self.tokenActionsService = tokenActionsService
     }
 
     func filterTokens(tokens: [TokenObject], filter: WalletFilter) -> [TokenObject] {
@@ -22,7 +28,7 @@ class FilterTokensCoordinator {
         case .type(let types):
             filteredTokens = tokens.filter { types.contains($0.type) }
         case .currencyOnly:
-            filteredTokens = tokens.filter { $0.type == .nativeCryptocurrency || $0.type == .erc20 }
+             filteredTokens = tokens.filter { $0.type == .nativeCryptocurrency || $0.type == .erc20 }
         case .assetsOnly:
             filteredTokens = tokens.filter { $0.type != .nativeCryptocurrency && $0.type != .erc20 }
         case .collectiblesOnly:
@@ -42,8 +48,8 @@ class FilterTokensCoordinator {
                     } else if lowercasedKeyword == "tokenscript" {
                         let xmlHandler = XMLHandler(token: $0, assetDefinitionStore: assetDefinitionStore)
                         return xmlHandler.hasNoBaseAssetDefinition && (xmlHandler.server?.matches(server: $0.server) ?? false)
-                    } else if lowercasedKeyword == "uniswap" {
-                        return UniswapERC20Token.isSupport(token: $0)
+                    } else if lowercasedKeyword == FilterKeys.swap.rawValue {
+                        return tokenActionsService.isSupport(token: $0)
                     } else {
                         return $0.name.trimmed.lowercased().contains(lowercasedKeyword) ||
                                 $0.symbol.trimmed.lowercased().contains(lowercasedKeyword) ||

@@ -5,28 +5,24 @@ import UIKit
 import BigInt
 
 struct TransactionViewModel {
-    private let transaction: Transaction
+    private let transactionRow: TransactionRow
     private let chainState: ChainState
     private let currentWallet: Wallet
     private let shortFormatter = EtherNumberFormatter.short
     private let fullFormatter = EtherNumberFormatter.full
 
     private var server: RPCServer {
-        return transaction.server
+        return transactionRow.server
     }
 
-    init(
-        transaction: Transaction,
-        chainState: ChainState,
-        currentWallet: Wallet
-    ) {
-        self.transaction = transaction
+    init(transactionRow: TransactionRow, chainState: ChainState, currentWallet: Wallet) {
+        self.transactionRow = transactionRow
         self.chainState = chainState
         self.currentWallet = currentWallet
     }
 
     var direction: TransactionDirection {
-        if currentWallet.address.sameContract(as: transaction.from) {
+        if currentWallet.address.sameContract(as: transactionRow.from) {
             return .outgoing
         } else {
             return .incoming
@@ -34,7 +30,7 @@ struct TransactionViewModel {
     }
 
     var confirmations: Int? {
-        return chainState.confirmations(fromBlock: transaction.blockNumber)
+        return chainState.confirmations(fromBlock: transactionRow.blockNumber)
     }
 
     var amountTextColor: UIColor {
@@ -84,23 +80,28 @@ struct TransactionViewModel {
     }
 
     private func transactionValue(for formatter: EtherNumberFormatter) -> TransactionValue {
-        if let operation = transaction.operation, let symbol = operation.symbol {
-            if operation.operationType == .erc721TokenTransfer || operation.operationType == .erc875TokenTransfer {
-                return TransactionValue(
-                        amount: operation.value,
-                        symbol: symbol
-                )
+        switch transactionRow {
+        case .standalone(let transaction):
+            if let operation = transaction.operation {
+                return TransactionValue(amount: formatter.string(from: BigInt(operation.value) ?? BigInt()), symbol: operation.symbol ?? server.symbol)
             } else {
-                return TransactionValue(
-                        amount: formatter.string(from: BigInt(operation.value) ?? BigInt(), decimals: operation.decimals),
-                        symbol: symbol
-                )
+                return TransactionValue(amount: formatter.string(from: BigInt(transaction.value) ?? BigInt()), symbol: server.symbol)
             }
-        } else {
-            return TransactionValue(
-                    amount: formatter.string(from: BigInt(transaction.value) ?? BigInt()),
-                    symbol: server.symbol
-            )
+        case .group(let transaction):
+            return TransactionValue(amount: formatter.string(from: BigInt(transaction.value) ?? BigInt()), symbol: server.symbol)
+        case .item(transaction: let transaction, operation: let operation):
+            if let symbol = operation.symbol {
+                if operation.operationType == .erc721TokenTransfer || operation.operationType == .erc875TokenTransfer {
+                    return TransactionValue(
+                            amount: operation.value,
+                            symbol: symbol
+                    )
+                } else {
+                    return TransactionValue(amount: formatter.string(from: BigInt(operation.value) ?? BigInt(), decimals: operation.decimals), symbol: symbol)
+                }
+            } else {
+                return TransactionValue(amount: formatter.string(from: BigInt(transaction.value) ?? BigInt()), symbol: server.symbol)
+            }
         }
     }
 }

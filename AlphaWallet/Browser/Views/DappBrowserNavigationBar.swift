@@ -162,7 +162,6 @@ final class DappBrowserNavigationBar: UINavigationBar {
         trailingAnchorConstraint.priority = .required - 1
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 54),
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             leadingAnchorConstraint,
             trailingAnchorConstraint,
@@ -190,6 +189,10 @@ final class DappBrowserNavigationBar: UINavigationBar {
         changeServerButton.setTitle(server.name, for: .normal)
 
         cancelEditingButton.setTitle(R.string.localizable.cancel(), for: .normal)
+    }
+
+    func setBrowserBar(hidden: Bool) {
+        stackView.isHidden = hidden
     }
 
     @objc private func goBackAction() {

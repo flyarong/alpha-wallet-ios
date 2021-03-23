@@ -1,7 +1,7 @@
 // Copyright © 2018 Stormbird PTE. LTD.
 
 import UIKit
-import TrustWalletCore
+import WalletCore
 
 protocol ImportWalletViewControllerDelegate: class {
     func didImportAccount(account: Wallet, in viewController: ImportWalletViewController)
@@ -20,7 +20,7 @@ class ImportWalletViewController: UIViewController {
     private static let mnemonicSuggestionsBarHeight: CGFloat = ScreenChecker().isNarrowScreen ? 40 : 60
 
     private let keystore: Keystore
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let viewModel = ImportWalletViewModel()
     //We don't actually use the rounded corner here, but it's a useful "content" view here
     private let roundedBackground = RoundedBackground()
@@ -69,7 +69,7 @@ class ImportWalletViewController: UIViewController {
             button.frame = .init(x: 0, y: 0, width: 30, height: 30)
             button.setImage(R.image.togglePassword(), for: .normal)
             button.tintColor = .init(red: 111, green: 111, blue: 111)
-            button.addTarget(self, action: #selector(self.toggleMaskPassword), for: .touchUpInside)
+            button.addTarget(self, action: #selector(toggleMaskPassword), for: .touchUpInside)
             return button
         }()
         textField.textField.rightViewMode = .unlessEditing
@@ -176,7 +176,7 @@ class ImportWalletViewController: UIViewController {
 
     weak var delegate: ImportWalletViewControllerDelegate?
 
-    init(keystore: Keystore, analyticsCoordinator: AnalyticsCoordinator?) {
+    init(keystore: Keystore, analyticsCoordinator: AnalyticsCoordinator) {
         self.keystore = keystore
         self.analyticsCoordinator = analyticsCoordinator
 
@@ -503,22 +503,30 @@ class ImportWalletViewController: UIViewController {
         let types = ["public.text", "public.content", "public.item", "public.data"]
         let controller = UIDocumentPickerViewController(documentTypes: types, in: .import)
         controller.delegate = self
+
         switch UIDevice.current.userInterfaceIdiom {
         case .pad:
             controller.modalPresentationStyle = .formSheet
-        case .unspecified, .tv, .carPlay, .phone:
+        case .phone:
+            controller.makePresentationFullScreenForiOS13Migration()
+        //NOTE: allow to support version xCode 11.7 and xCode 12
+        default:
             controller.makePresentationFullScreenForiOS13Migration()
         }
-        present(controller, animated: true, completion: nil)
+
+        present(controller, animated: true)
     }
 
-    @objc func openReader() {
+    @objc private func openReader() {
         delegate?.openQRCode(in: self)
     }
 
+    func set(tabSelection selection: ImportWalletTab) {
+        tabBar.selection = .selected(selection.selectionIndex)
+    }
+
     func setValueForCurrentField(string: String) {
-        guard let tab = viewModel.convertSegmentedControlSelectionToFilter(tabBar.selection) else { return }
-        switch tab {
+        switch viewModel.convertSegmentedControlSelectionToFilter(tabBar.selection) {
         case .mnemonic:
             mnemonicTextView.value = string
         case .keystore:
@@ -527,7 +535,10 @@ class ImportWalletViewController: UIViewController {
             privateKeyTextView.value = string
         case .watch:
             watchAddressTextField.value = string
+        case .none:
+            break
         }
+
         showCorrectTab()
     }
 

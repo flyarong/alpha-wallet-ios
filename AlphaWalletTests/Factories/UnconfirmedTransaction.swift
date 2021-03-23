@@ -6,29 +6,25 @@ import BigInt
 
 extension UnconfirmedTransaction {
     static func make(
-        transferType: TransferType = .nativeCryptocurrency(TokenObject(), destination: .none, amount: nil),
+        transactionType: TransactionType = .nativeCryptocurrency(TokenObject(), destination: .none, amount: nil),
         value: BigInt = BigInt(1),
         to: AlphaWallet.Address = .make(),
+        recipient: AlphaWallet.Address? = .none,
         data: Data = Data(),
         gasLimit: BigInt? = BigInt(100000),
         gasPrice: BigInt? = BigInt(1000),
         nonce: BigInt? = BigInt(1)
     ) -> UnconfirmedTransaction {
         return UnconfirmedTransaction(
-            transferType: transferType,
+            transactionType: transactionType,
             value: value,
-            to: to,
+            recipient: recipient,
+            contract: to,
             data: data,
+            tokenId: nil,
             gasLimit: gasLimit,
-            tokenId: Constants.nullTokenId,
             gasPrice: gasPrice,
-            nonce: nonce,
-            v: .none,
-            r: .none,
-            s: .none,
-            expiry: .none,
-            indices: .none,
-            tokenIds: [BigUInt]()
+            nonce: nonce
         )
     }
 }

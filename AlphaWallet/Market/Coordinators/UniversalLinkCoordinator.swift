@@ -10,8 +10,9 @@ import web3swift
 protocol UniversalLinkCoordinatorDelegate: class, CanOpenURL {
 	func viewControllerForPresenting(in coordinator: UniversalLinkCoordinator) -> UIViewController?
 	func completed(in coordinator: UniversalLinkCoordinator)
-    func importPaidSignedOrder(signedOrder: SignedOrder, tokenObject: TokenObject, completion: @escaping (Bool) -> Void)
+    func importPaidSignedOrder(signedOrder: SignedOrder, tokenObject: TokenObject, inViewController viewController: ImportMagicTokenViewController, completion: @escaping (Bool) -> Void)
     func didImported(contract: AlphaWallet.Address, in coordinator: UniversalLinkCoordinator)
+    func handle(walletConnectUrl url: WalletConnectURL)
 }
 
 // swiftlint:disable type_body_length
@@ -21,6 +22,9 @@ class UniversalLinkCoordinator: Coordinator {
         case paid(signedOrder: SignedOrder, tokenObject: TokenObject)
     }
 
+    static let walletConnectPath = "/wc"
+
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let wallet: Wallet
     private let config: Config
 	private var importTokenViewController: ImportMagicTokenViewController?
@@ -35,7 +39,7 @@ class UniversalLinkCoordinator: Coordinator {
     private var isShowingImportUserInterface: Bool {
         return delegate?.viewControllerForPresenting(in: self) != nil
     }
-    private let tokensDatastores: ServerDictionary<TokensDataStore>
+    private let tokensDatastore: TokensDataStore
     private let assetDefinitionStore: AssetDefinitionStore
     private let url: URL
 
@@ -67,17 +71,24 @@ class UniversalLinkCoordinator: Coordinator {
             return "BNB"
         case .classic, .main, .poa, .callisto, .kovan, .ropsten, .rinkeby, .sokol, .goerli, .artis_sigma1, .artis_tau1, .custom:
             return "ETH"
+        case .heco, .heco_testnet:
+            return "HT"
+        case .fantom, .fantom_testnet:
+            return "FTM"
+        case .avalanche, .avalanche_testnet:
+            return "AVAX"
+        case .polygon, .mumbai_testnet:
+            return "MATIC"
         }
     }
 
-    init?(wallet: Wallet, config: Config, ethPrices: ServerDictionary<Subscribable<Double>>, ethBalances: ServerDictionary<Subscribable<BigInt>>, tokensDatastores: ServerDictionary<TokensDataStore>, assetDefinitionStore: AssetDefinitionStore, url: URL) {
-        guard let server = RPCServer(withMagicLink: url) else { return nil }
-
+    init(analyticsCoordinator: AnalyticsCoordinator, wallet: Wallet, config: Config, ethPrice: Subscribable<Double>, ethBalance: Subscribable<BigInt>, tokensDatastore: TokensDataStore, assetDefinitionStore: AssetDefinitionStore, url: URL, server: RPCServer) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.wallet = wallet
         self.config = config
-        self.ethPrice = ethPrices[server]
-        self.ethBalance = ethBalances[server]
-        self.tokensDatastores = tokensDatastores
+        self.ethPrice = ethPrice
+        self.ethBalance = ethBalance
+        self.tokensDatastore = tokensDatastore
         self.assetDefinitionStore = assetDefinitionStore
         self.url = url
         self.server = server
@@ -305,6 +316,27 @@ class UniversalLinkCoordinator: Coordinator {
 
     //Returns true if handled
     func handleUniversalLink() -> Bool {
+        //E.g. https://aw.app/wc?uri=wc%3A588422fd-929d-438a-b337-31c3c9184d9b%401%3Fbridge%3Dhttps%253A%252F%252Fbridge.walletconnect.org%26key%3D8f9459f72aed0790282c47fe45f37ed5cb121bc17795f8f2a229a910bc447202
+        if url.path == Self.walletConnectPath {
+            return handleWalletConnect()
+        } else {
+            return handleMagicLink()
+        }
+    }
+
+    private func handleWalletConnect() -> Bool {
+        assert(url.path == Self.walletConnectPath)
+        guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: true)?.queryItems else { return false }
+        guard let string = queryItems.first(where: { $0.name == "uri" })?.value else { return false }
+        if let walletConnectUrl = WalletConnectURL(string) {
+            delegate?.handle(walletConnectUrl: walletConnectUrl)
+        } else {
+            //no-op. According to WalletConnect docs, this is just to get iOS to switch over to the app for signing, etc. e.g. https://aw.app/wc?uri=wc:00e46b69-d0cc-4b3e-b6a2-cee442f97188@1
+        }
+        return true
+    }
+
+    private func handleMagicLink() -> Bool {
         preparingToImportUniversalLink()
         let isLegacyLink = url.description.hasPrefix(Constants.legacyMagicLinkPrefix)
         let prefix: String
@@ -340,9 +372,8 @@ class UniversalLinkCoordinator: Coordinator {
                         contractAsAddress: signedOrder.order.contractAddress
                 )
             }
-        case .failure(let error):
-            print("ecrecover error: " + error.localizedDescription)
-            self.showImportError(errorMessage: R.string.localizable.aClaimTokenInvalidLinkTryAgain())
+        case .failure:
+            showImportError(errorMessage: R.string.localizable.aClaimTokenInvalidLinkTryAgain())
             return false
         }
         return true
@@ -384,7 +415,6 @@ class UniversalLinkCoordinator: Coordinator {
             }
         }
     }
-
     private func ecrecover(signedOrder: SignedOrder) -> ResultResult<web3swift.EthereumAddress, web3swift.Web3Error>.t {
         //need to hash message here because the web3swift implementation adds prefix
         let messageHash = Data(bytes: signedOrder.message).sha3(.keccak256)
@@ -395,9 +425,11 @@ class UniversalLinkCoordinator: Coordinator {
         let signature = "0x" + signedOrder.signature.drop0x.substring(to: 128) + vString
         let nodeURL = server.rpcURL
         let provider = Web3HttpProvider(nodeURL, network: server.web3Network)!
-        return web3(provider: provider).personal.ecrecover(
-                hash: messageHash,
-                signature: Data(bytes: signature.hexToBytes)
+        let web3Instance = web3swift.web3(provider: provider)
+
+        return web3swift.web3.Personal(provider: provider, web3: web3Instance).ecrecover(
+            hash: messageHash,
+            signature: Data(bytes: signature.hexToBytes)
         )
     }
 
@@ -417,7 +449,7 @@ class UniversalLinkCoordinator: Coordinator {
         switch server {
         case .xDai:
             errorMessage = R.string.localizable.aClaimTokenFailedNotEnoughXDAITitle()
-        case .classic, .main, .poa, .callisto, .kovan, .ropsten, .rinkeby, .sokol, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom:
+        case .classic, .main, .poa, .callisto, .kovan, .ropsten, .rinkeby, .sokol, .goerli, .artis_sigma1, .artis_tau1, .binance_smart_chain, .binance_smart_chain_testnet, .custom, .heco, .heco_testnet, .fantom, .fantom_testnet, .avalanche, .avalanche_testnet, .polygon, .mumbai_testnet:
             errorMessage = R.string.localizable.aClaimTokenFailedNotEnoughEthTitle()
         }
         if ethPrice.value == nil {
@@ -463,7 +495,7 @@ class UniversalLinkCoordinator: Coordinator {
     }
 
     private func makeTokenHolder(_ bytes32Tokens: [String], _ contractAddress: AlphaWallet.Address) {
-        assetDefinitionStore.fetchXML(forContract: contractAddress, useCacheAndFetch: true) { [weak self] result in
+        assetDefinitionStore.fetchXML(forContract: contractAddress, useCacheAndFetch: true) { [weak self] _ in
             guard let strongSelf = self else { return }
 
             func makeTokenHolder(name: String, symbol: String, type: TokenType? = nil) {
@@ -471,7 +503,7 @@ class UniversalLinkCoordinator: Coordinator {
                 strongSelf.updateTokenFields()
             }
 
-            let tokensDatastore = strongSelf.tokensDatastores[strongSelf.server]
+            let tokensDatastore = strongSelf.tokensDatastore
             if let existingToken = tokensDatastore.token(forContract: contractAddress) {
                 let name = XMLHandler(token: existingToken, assetDefinitionStore: strongSelf.assetDefinitionStore).getLabel(fallback: existingToken.name)
                 makeTokenHolder(name: name, symbol: existingToken.symbol)
@@ -493,7 +525,6 @@ class UniversalLinkCoordinator: Coordinator {
 
     private func makeTokenHolderImpl(name: String, symbol: String, type: TokenType? = nil, bytes32Tokens: [String], contractAddress: AlphaWallet.Address) {
         //TODO pass in the wallet instead
-        let tokensDatastore = tokensDatastores[server]
         guard let tokenType = type ?? (tokensDatastore.token(forContract: contractAddress)?.type) else { return }
         var tokens = [Token]()
         let xmlHandler = XMLHandler(contract: contractAddress, tokenType: tokenType, assetDefinitionStore: assetDefinitionStore)
@@ -513,7 +544,7 @@ class UniversalLinkCoordinator: Coordinator {
 
 	private func preparingToImportUniversalLink() {
 		guard let viewController = delegate?.viewControllerForPresenting(in: self) else { return }
-        importTokenViewController = ImportMagicTokenViewController(server: server, assetDefinitionStore: assetDefinitionStore)
+        importTokenViewController = ImportMagicTokenViewController(analyticsCoordinator: analyticsCoordinator, server: server, assetDefinitionStore: assetDefinitionStore)
         guard let vc = importTokenViewController else { return }
         vc.delegate = self
         vc.configure(viewModel: .init(state: .validating, server: server))
@@ -559,8 +590,8 @@ class UniversalLinkCoordinator: Coordinator {
 	}
 
     private func importPaidSignedOrder(signedOrder: SignedOrder, tokenObject: TokenObject) {
-        updateImportTokenController(with: .processing)
-        delegate?.importPaidSignedOrder(signedOrder: signedOrder, tokenObject: tokenObject) { [weak self] successful in
+        guard let importTokenViewController = importTokenViewController else { return }
+        delegate?.importPaidSignedOrder(signedOrder: signedOrder, tokenObject: tokenObject, inViewController: importTokenViewController) { [weak self] successful in
             guard let strongSelf = self else { return }
             guard let vc = strongSelf.importTokenViewController, case .ready = vc.state else { return }
             if successful {
@@ -595,7 +626,6 @@ class UniversalLinkCoordinator: Coordinator {
 
             guard let vc = strongSelf.importTokenViewController, case .ready = vc.state else { return }
             // TODO handle http response
-            print(result)
             if successful {
                 strongSelf.showImportSuccessful()
             } else {

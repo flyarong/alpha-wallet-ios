@@ -10,19 +10,20 @@ protocol ActivityViewControllerDelegate: class {
 }
 
 class ActivityViewController: UIViewController {
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let roundedBackground = RoundedBackground()
     private let wallet: Wallet
     private let assetDefinitionStore: AssetDefinitionStore
     private let buttonsBar = ButtonsBar(configuration: .green(buttons: 1))
     private let tokenImageView = TokenImageView()
-    private let stateImageView = UIImageView()
+    private let stateView = ActivityStateView()
     private let titleLabel = UILabel()
     private let subTitleLabel = UILabel()
     private let timestampLabel = UILabel()
     private let separator = UIView()
     private let bottomFiller = UIView.spacerWidth()
     lazy private var tokenScriptRendererView: TokenInstanceWebView = {
-        let webView = TokenInstanceWebView(server: server, wallet: wallet, assetDefinitionStore: assetDefinitionStore)
+        let webView = TokenInstanceWebView(analyticsCoordinator: analyticsCoordinator, server: server, wallet: wallet, assetDefinitionStore: assetDefinitionStore)
         webView.isWebViewInteractionEnabled = true
         webView.delegate = self
         webView.isStandalone = true
@@ -40,7 +41,8 @@ class ActivityViewController: UIViewController {
 
     weak var delegate: ActivityViewControllerDelegate?
 
-    init(wallet: Wallet, assetDefinitionStore: AssetDefinitionStore, viewModel: ActivityViewModel) {
+    init(analyticsCoordinator: AnalyticsCoordinator, wallet: Wallet, assetDefinitionStore: AssetDefinitionStore, viewModel: ActivityViewModel) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.wallet = wallet
         self.assetDefinitionStore = assetDefinitionStore
         self.viewModel = viewModel
@@ -59,9 +61,6 @@ class ActivityViewController: UIViewController {
         tokenImageView.contentMode = .scaleAspectFit
         let tap = UITapGestureRecognizer(target: self, action: #selector(showContractWebPage))
         tokenImageView.addGestureRecognizer(tap)
-
-        stateImageView.translatesAutoresizingMaskIntoConstraints = false
-        stateImageView.contentMode = .scaleAspectFit
 
         let stackView = [
             .spacer(height: 8),
@@ -82,28 +81,19 @@ class ActivityViewController: UIViewController {
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         roundedBackground.addSubview(stackView)
-        roundedBackground.addSubview(stateImageView)
+        roundedBackground.addSubview(stateView)
 
-        let footerBar = UIView()
-        footerBar.translatesAutoresizingMaskIntoConstraints = false
-        footerBar.backgroundColor = .clear
+        let footerBar = ButtonsBarBackgroundView(buttonsBar: buttonsBar, separatorHeight: 0)
         roundedBackground.addSubview(footerBar)
-
-        footerBar.addSubview(buttonsBar)
 
         NSLayoutConstraint.activate([
             //Setting height for labels to get their heights to be correct. If we want to remove them, make sure to test with both the native Activity view and TokenScript (HTML) Activity views
             timestampLabel.heightAnchor.constraint(equalToConstant: 20),
-            titleLabel.heightAnchor.constraint(equalToConstant: 20),
+            titleLabel.heightAnchor.constraint(equalToConstant: 26),
             subTitleLabel.heightAnchor.constraint(equalToConstant: 20),
 
             tokenImageView.heightAnchor.constraint(equalToConstant: 60),
             tokenImageView.widthAnchor.constraint(equalToConstant: 60),
-
-            stateImageView.heightAnchor.constraint(equalToConstant: 24),
-            stateImageView.widthAnchor.constraint(equalToConstant: 24),
-            stateImageView.trailingAnchor.constraint(equalTo: tokenImageView.trailingAnchor),
-            stateImageView.bottomAnchor.constraint(equalTo: tokenImageView.bottomAnchor),
 
             separator.leadingAnchor.constraint(equalTo: stackView.leadingAnchor, constant: 20),
             separator.trailingAnchor.constraint(equalTo: stackView.trailingAnchor, constant: -20),
@@ -112,22 +102,20 @@ class ActivityViewController: UIViewController {
 
             tokenScriptRendererView.widthAnchor.constraint(equalTo: stackView.widthAnchor),
 
-            buttonsBar.leadingAnchor.constraint(equalTo: footerBar.leadingAnchor),
-            buttonsBar.trailingAnchor.constraint(equalTo: footerBar.trailingAnchor),
-            buttonsBar.topAnchor.constraint(equalTo: footerBar.topAnchor),
-            buttonsBar.heightAnchor.constraint(equalToConstant: ButtonsBar.buttonsHeight),
-
-            footerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            footerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            footerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -ButtonsBar.buttonsHeight - ButtonsBar.marginAtBottomScreen),
-            footerBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ] + roundedBackground.createConstraintsWithContainer(view: view))
+        ] + roundedBackground.createConstraintsWithContainer(view: view)
+        + stateView.anchorConstraints(to: tokenImageView, size: .init(width: 24, height: 24), bottomOffset: .zero)
+        + footerBar.anchorsConstraint(to: view))
 
         configure(viewModel: viewModel)
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationItem.largeTitleDisplayMode = .never
     }
 
     func configure(viewModel: ActivityViewModel) {
@@ -138,7 +126,7 @@ class ActivityViewController: UIViewController {
 
         titleLabel.textColor = viewModel.titleTextColor
         titleLabel.font = viewModel.titleFont
-        titleLabel.text = viewModel.title
+        titleLabel.attributedText = viewModel.title
 
         subTitleLabel.text = viewModel.subTitle
         subTitleLabel.textColor = viewModel.subTitleTextColor
@@ -149,7 +137,7 @@ class ActivityViewController: UIViewController {
         timestampLabel.text = viewModel.timestamp
 
         tokenImageView.subscribable = viewModel.iconImage
-        stateImageView.image = viewModel.stateImage
+        stateView.configure(viewModel: viewModel.activityStateViewViewModel)
 
         timestampLabel.textAlignment = .center
         titleLabel.textAlignment = .center

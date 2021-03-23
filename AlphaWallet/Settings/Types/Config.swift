@@ -15,7 +15,7 @@ struct Config {
         }
         //If the is not saved currency try to use user local currency if it is supported.
         let availableCurrency = Currency.allValues.first { currency in
-            return currency.rawValue == Locale.current.currencySymbol
+            return currency.rawValue == Config.locale.currencySymbol
         }
         if let isAvailableCurrency = availableCurrency {
             return isAvailableCurrency
@@ -35,8 +35,21 @@ struct Config {
         return defaults.string(forKey: Keys.locale)
     }
 
+    static var locale: Locale {
+        if let identifier = getLocale() {
+            return Locale(identifier: identifier)
+        } else {
+            return Locale.current
+        }
+    }
+
     static func setLocale(_ locale: AppLocale) {
         setLocale(locale.id)
+
+        EtherNumberFormatter.full = .createFullEtherNumberFormatter()
+        EtherNumberFormatter.short = .createShortEtherNumberFormatter()
+        EtherNumberFormatter.shortPlain = .createShortPlainEtherNumberFormatter()
+        EtherNumberFormatter.plain = .createPlainEtherNumberFormatter()
     }
 
     static func setLocale(_ locale: String?) {
@@ -58,6 +71,7 @@ struct Config {
         defaults.set(chainId, forKey: Keys.chainID)
     }
 
+    //TODO Only Dapp browser uses this
     static func getChainId(defaults: UserDefaults = UserDefaults.standard) -> Int {
         let id = defaults.integer(forKey: Keys.chainID)
         guard id > 0 else { return RPCServer.main.chainID }
@@ -122,9 +136,20 @@ struct Config {
         static let lastFetchedAutoDetectedTransactedTokenErc20BlockNumber = "lastFetchedAutoDetectedTransactedTokenErc20BlockNumber"
         static let lastFetchedAutoDetectedTransactedTokenNonErc20BlockNumber = "lastFetchedAutoDetectedTransactedTokenNonErc20BlockNumber"
         static let walletNames = "walletNames"
+        static let useTaiChiNetwork = "useTaiChiNetworkKey"
     }
 
     let defaults: UserDefaults
+
+    var useTaiChiNetwork: Bool {
+        get {
+            defaults.bool(forKey: Keys.useTaiChiNetwork)
+        }
+
+        set {
+            defaults.set(newValue, forKey: Keys.useTaiChiNetwork)
+        }
+    }
 
     var enabledServers: [RPCServer] {
         get {
@@ -137,15 +162,6 @@ struct Config {
         set {
             let chainIds = newValue.map { $0.chainID }
             defaults.set(chainIds, forKey: Keys.enabledServers)
-        }
-    }
-
-    var server: RPCServer {
-        let chainId = Config.getChainId()
-        if let server = enabledServers.first(where: { $0.chainID == chainId }) {
-            return server
-        } else {
-            return .main
         }
     }
 
@@ -176,6 +192,18 @@ struct Config {
         }
         addresses.append(address.eip55String)
         defaults.setValue(addresses, forKey: Keys.walletAddressesAlreadyPromptedForBackUp)
+    }
+
+    let oneInch = URL(string: "https://api.1inch.exchange")!
+    let honeySwapTokens = URL(string: "https://tokens.honeyswap.org/")!
+
+    var taichiPrivateRpcUrl: URL? {
+        let key = Constants.Credentials.taiChiRPCKey
+        if key.isEmpty {
+            return nil
+        } else {
+            return URL(string: "http://api.taichi.network:10000/rpc/\(key)?txroute=private")!
+        }
     }
 }
 

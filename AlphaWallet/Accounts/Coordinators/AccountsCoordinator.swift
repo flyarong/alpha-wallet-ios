@@ -17,7 +17,7 @@ class AccountsCoordinator: Coordinator {
     private let balanceCoordinator = GetNativeCryptoCurrencyBalanceCoordinator(forServer: .main)
     private let keystore: Keystore
     private let promptBackupCoordinator: PromptBackupCoordinator
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
 
     let navigationController: UINavigationController
     var coordinators: [Coordinator] = []
@@ -39,7 +39,7 @@ class AccountsCoordinator: Coordinator {
         navigationController: UINavigationController,
         keystore: Keystore,
         promptBackupCoordinator: PromptBackupCoordinator,
-        analyticsCoordinator: AnalyticsCoordinator?
+        analyticsCoordinator: AnalyticsCoordinator
     ) {
         self.config = config
         self.navigationController = navigationController
@@ -136,9 +136,7 @@ class AccountsCoordinator: Coordinator {
 
             controller.addAction(cancelAction)
 
-            controller.makePresentationFullScreenForiOS13Migration()
-
-            navigationController.present(controller, animated: true, completion: nil)
+            navigationController.present(controller, animated: true)
         case .watch:
             let renameAction = UIAlertAction(title: R.string.localizable.walletsNameRename(), style: .default) { [weak self] _ in
                 self?.promptRenameWallet(account.address)
@@ -151,8 +149,8 @@ class AccountsCoordinator: Coordinator {
             controller.addAction(copyAction)
             let cancelAction = UIAlertAction(title: R.string.localizable.cancel(), style: .cancel) { _ in }
             controller.addAction(cancelAction)
-            controller.makePresentationFullScreenForiOS13Migration()
-            navigationController.present(controller, animated: true, completion: nil)
+
+            navigationController.present(controller, animated: true)
         }
     }
 

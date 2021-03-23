@@ -8,10 +8,11 @@ import PromiseKit
 protocol TokenInstanceActionViewControllerDelegate: class, CanOpenURL {
     func didPressViewRedemptionInfo(in viewController: TokenInstanceActionViewController)
     func shouldCloseFlow(inViewController viewController: TokenInstanceActionViewController)
-    func didCompleteTransaction(in viewController: TokenInstanceActionViewController)
+    func confirmTransactionSelected(in viewController: TokenInstanceActionViewController, tokenObject: TokenObject, contract: AlphaWallet.Address, tokenId: TokenId, values: [AttributeId: AssetInternalValue], localRefs: [AttributeId: AssetInternalValue], server: RPCServer, session: WalletSession, keystore: Keystore, transactionFunction: FunctionOrigin)
 }
 
 class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatusViewController {
+    private let analyticsCoordinator: AnalyticsCoordinator
     private let tokenObject: TokenObject
     private let tokenHolder: TokenHolder
     private let action: TokenInstanceAction
@@ -20,7 +21,7 @@ class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatus
     private let tokensStorage: TokensDataStore
     private let roundedBackground = RoundedBackground()
     lazy private var tokenScriptRendererView: TokenInstanceWebView = {
-        let webView = TokenInstanceWebView(server: server, wallet: keystore.currentWallet, assetDefinitionStore: assetDefinitionStore)
+        let webView = TokenInstanceWebView(analyticsCoordinator: analyticsCoordinator, server: server, wallet: keystore.currentWallet, assetDefinitionStore: assetDefinitionStore)
         webView.isWebViewInteractionEnabled = true
         webView.delegate = self
         webView.isStandalone = true
@@ -73,7 +74,8 @@ class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatus
         }
     }
 
-    init(tokenObject: TokenObject, tokenHolder: TokenHolder, tokensStorage: TokensDataStore, assetDefinitionStore: AssetDefinitionStore, action: TokenInstanceAction, session: WalletSession, keystore: Keystore) {
+    init(analyticsCoordinator: AnalyticsCoordinator, tokenObject: TokenObject, tokenHolder: TokenHolder, tokensStorage: TokensDataStore, assetDefinitionStore: AssetDefinitionStore, action: TokenInstanceAction, session: WalletSession, keystore: Keystore) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.tokenObject = tokenObject
         self.tokenHolder = tokenHolder
         self.tokensStorage = tokensStorage
@@ -189,34 +191,9 @@ class TokenInstanceActionViewController: UIViewController, TokenVerifiableStatus
             let contract = transactionFunction.originContractOrRecipientAddress
             let tokenId = strongSelf.tokenId
 
-            func notify(message: String) {
-                UIAlertController.alert(title: message,
-                    message: "",
-                    alertButtonTitles: [R.string.localizable.oK()],
-                    alertButtonStyles: [.default],
-                    viewController: strongSelf,
-                    completion: nil
-                )
-            }
-
-            func postTransaction() {
-                transactionFunction.postTransaction(withTokenId: tokenId, attributeAndValues: values, localRefs: strongSelf.tokenScriptRendererView.localRefs, server: strongSelf.server, session: strongSelf.session, keystore: strongSelf.keystore).done {_ in
-                    strongSelf.delegate?.didCompleteTransaction(in: strongSelf)
-                }.catch { error in
-                    notify(message: "Transaction Failed")
-                }
-            }
-
             guard transactionFunction.generateDataAndValue(withTokenId: tokenId, attributeAndValues: values, localRefs: strongSelf.tokenScriptRendererView.localRefs, server: strongSelf.server, session: strongSelf.session, keystore: strongSelf.keystore) != nil else { return }
 
-            guard let navigationController = strongSelf.navigationController else { return }
-
-            let viewModel = TransactionConfirmationViewModel(contract: contract)
-            let controller = TransactionConfirmationViewController(viewModel: viewModel)
-            controller.didCompleted = postTransaction
-
-            let transitionController = ConfirmationTransitionController(sourceViewController: navigationController, destinationViewController: controller)
-            transitionController.start()
+            strongSelf.delegate?.confirmTransactionSelected(in: strongSelf, tokenObject: strongSelf.tokenObject, contract: contract, tokenId: tokenId, values: values, localRefs: strongSelf.tokenScriptRendererView.localRefs, server: strongSelf.server, session: strongSelf.session, keystore: strongSelf.keystore, transactionFunction: transactionFunction)
 
         }.cauterize()
         //TODO catch

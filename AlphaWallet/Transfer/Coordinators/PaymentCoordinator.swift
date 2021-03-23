@@ -10,20 +10,20 @@ protocol PaymentCoordinatorDelegate: class, CanOpenURL {
 
 class PaymentCoordinator: Coordinator {
     private let session: WalletSession
-    private let flow: PaymentFlow
+    let flow: PaymentFlow
     private let keystore: Keystore
     private let storage: TokensDataStore
     private let ethPrice: Subscribable<Double>
     private let tokenHolders: [TokenHolder]!
     private let assetDefinitionStore: AssetDefinitionStore
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
 
     weak var delegate: PaymentCoordinatorDelegate?
     var coordinators: [Coordinator] = []
     let navigationController: UINavigationController
 
     init(
-            navigationController: UINavigationController = UINavigationController(),
+            navigationController: UINavigationController,
             flow: PaymentFlow,
             session: WalletSession,
             keystore: Keystore,
@@ -31,10 +31,9 @@ class PaymentCoordinator: Coordinator {
             ethPrice: Subscribable<Double>,
             tokenHolders: [TokenHolder] = [],
             assetDefinitionStore: AssetDefinitionStore,
-            analyticsCoordinator: AnalyticsCoordinator?
+            analyticsCoordinator: AnalyticsCoordinator
     ) {
         self.navigationController = navigationController
-        self.navigationController.modalPresentationStyle = .formSheet
         self.session = session
         self.flow = flow
         self.keystore = keystore
@@ -49,7 +48,7 @@ class PaymentCoordinator: Coordinator {
         switch (flow, session.account.type) {
         case (.send(let type), .real(let account)):
             let coordinator = SendCoordinator(
-                transferType: type,
+                transactionType: type,
                 navigationController: navigationController,
                 session: session,
                 keystore: keystore,
@@ -64,11 +63,7 @@ class PaymentCoordinator: Coordinator {
             coordinator.start()
             addCoordinator(coordinator)
         case (.request, _):
-            let coordinator = RequestCoordinator(
-                navigationController: navigationController,
-                account: session.account,
-                server: session.server
-            )
+            let coordinator = RequestCoordinator(navigationController: navigationController, account: session.account)
             coordinator.delegate = self
             coordinator.start()
             addCoordinator(coordinator)
@@ -79,7 +74,7 @@ class PaymentCoordinator: Coordinator {
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 
     func cancel() {

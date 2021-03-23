@@ -22,6 +22,7 @@ class ENSReverseLookupCoordinator {
         self.server = server
     }
 
+    //TODO make calls from multiple callers at the same time for the same address more efficient
     func getENSNameFromResolver(
             forAddress input: AlphaWallet.Address,
             completion: @escaping (Result<String, AnyError>) -> Void
@@ -44,7 +45,7 @@ class ENSReverseLookupCoordinator {
                             return
                         }
                         GetENSAddressCoordinator(server: self.server).getENSAddressFromResolver(for: ensName) { result in
-                            if let addressFromForwardResolution = result.value, EthereumAddress(address: input) == addressFromForwardResolution {
+                            if let addressFromForwardResolution = result.value, input == addressFromForwardResolution {
                                 self.cache(forNode: node, result: ensName)
                                 completion(.success(ensName))
                             } else {

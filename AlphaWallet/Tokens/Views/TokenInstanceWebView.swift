@@ -45,6 +45,7 @@ class TokenInstanceWebView: UIView {
         }
     }
 
+    private let analyticsCoordinator: AnalyticsCoordinator
     //TODO see if we can be smarter about just subscribing to the attribute once. Note that this is not `Subscribable.subscribeOnce()`
     private let wallet: Wallet
     private let assetDefinitionStore: AssetDefinitionStore
@@ -93,7 +94,8 @@ class TokenInstanceWebView: UIView {
         return results
     }
 
-    init(server: RPCServer, wallet: Wallet, assetDefinitionStore: AssetDefinitionStore) {
+    init(analyticsCoordinator: AnalyticsCoordinator, server: RPCServer, wallet: Wallet, assetDefinitionStore: AssetDefinitionStore) {
+        self.analyticsCoordinator = analyticsCoordinator
         self.server = server
         self.wallet = wallet
         self.assetDefinitionStore = assetDefinitionStore
@@ -426,15 +428,14 @@ extension TokenInstanceWebView: WKScriptMessageHandler {
         switch command.name {
         case .signPersonalMessage:
             break
-        case .signTransaction, .sendTransaction, .signMessage, .signTypedMessage, .unknown:
+        case .signTransaction, .sendTransaction, .signMessage, .signTypedMessage, .ethCall, .unknown:
             return
         }
 
-        //TODO clean up this. Some of these are wrong, eg: Transfer(). They are only here so we can sign personal message
+        //TODO clean up this. Some of these are wrong, eg: transactionType. They are only here so we can sign personal message
         let requester = DAppRequester(title: webView.title, url: webView.url)
         let token = TokensDataStore.token(forServer: server)
-        let transfer = Transfer(server: server, type: .dapp(token, requester))
-        let action = DappAction.fromCommand(command, transfer: transfer)
+        let action = DappAction.fromCommand(command, server: server, transactionType: .dapp(token, requester))
 
         switch wallet.type {
         case .real(let account):
@@ -442,8 +443,8 @@ extension TokenInstanceWebView: WKScriptMessageHandler {
             case .signPersonalMessage(let hexMessage):
                 let msg = convertMessageToHex(msg: hexMessage)
                 let callbackID = command.id
-                signMessage(with: .personalMessage(Data(hex: msg)), account: account, callbackID: callbackID)
-            case .signTransaction, .sendTransaction, .signMessage, .signTypedMessage, .unknown:
+                signMessage(with: .personalMessage(Data(_hex: msg)), account: account, callbackID: callbackID)
+            case .signTransaction, .sendTransaction, .signMessage, .signTypedMessage, .unknown, .sendRawTransaction, .signTypedMessageV3, .ethCall:
                 return
             }
         case .watch:
@@ -482,33 +483,26 @@ extension TokenInstanceWebView {
 
     func signMessage(with type: SignMessageType, account: AlphaWallet.Address, callbackID: Int) {
         guard let navigationController = delegate?.navigationControllerFor(tokenInstanceWebView: self) else { return }
-
-        //TODO pass in keystore
-        let coordinator = SignMessageCoordinator(
-                navigationController: navigationController,
-                keystore: try! EtherKeystore(analyticsCoordinator: nil),
-                account: account
-        )
-        coordinator.didComplete = { [weak self] result in
-            guard let strongSelf = self else { return }
-            switch result {
-            case .success(let data):
-                let callback: DappCallback
-                switch type {
-                case .message:
-                    callback = DappCallback(id: callbackID, value: .signMessage(data))
-                case .personalMessage:
-                    callback = DappCallback(id: callbackID, value: .signPersonalMessage(data))
-                case .typedMessage:
-                    callback = DappCallback(id: callbackID, value: .signTypedMessage(data))
-                }
-                strongSelf.notifyFinish(callbackID: callbackID, value: .success(callback))
-            case .failure:
-                strongSelf.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
+        let keystore = try! EtherKeystore(analyticsCoordinator: analyticsCoordinator)
+        firstly {
+            SignMessageCoordinator.promise(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, keystore: keystore, signType: type, account: account, source: .tokenScript)
+        }.done { data in
+            let callback: DappCallback
+            switch type {
+            case .message:
+                callback = DappCallback(id: callbackID, value: .signMessage(data))
+            case .personalMessage:
+                callback = DappCallback(id: callbackID, value: .signPersonalMessage(data))
+            case .typedMessage:
+                callback = DappCallback(id: callbackID, value: .signTypedMessage(data))
+            case .eip712v3And4:
+                callback = DappCallback(id: callbackID, value: .signTypedMessageV3(data))
             }
-            coordinator.didComplete = nil
+
+            self.notifyFinish(callbackID: callbackID, value: .success(callback))
+        }.catch { _ in
+            self.notifyFinish(callbackID: callbackID, value: .failure(DAppError.cancelled))
         }
-        coordinator.start(with: type)
     }
 }
 
@@ -576,4 +570,22 @@ extension String {
     var hashForCachingHeight: Int {
         return hashValue
     }
+}
+
+//TODO to remove this.
+//TODO Do not use this unless it's absolutely necessary — e.g. it requires a big re-architecting of code
+class NoOpAnalyticsService: AnalyticsServiceType {
+    func log(action: AnalyticsAction, properties: [String : AnalyticsEventPropertyValue]?) { }
+    func applicationDidBecomeActive() { }
+    func application(continue userActivity: NSUserActivity) { }
+    func application(open url: URL, sourceApplication: String?, annotation: Any) { }
+    func application(open url: URL, options: [UIApplication.OpenURLOptionsKey : Any]) { }
+    func application(didReceiveRemoteNotification userInfo: [AnyHashable : Any]) { }
+    func add(pushDeviceToken token: Data) { }
+    func log(navigation: AnalyticsNavigation, properties: [String : AnalyticsEventPropertyValue]?) {}
+    func setUser(property: AnalyticsUserProperty, value: AnalyticsEventPropertyValue) { }
+    func incrementUser(property: AnalyticsUserProperty, by value: Int) { }
+    func incrementUser(property: AnalyticsUserProperty, by value: Double) { }
+
+    init() {}
 }

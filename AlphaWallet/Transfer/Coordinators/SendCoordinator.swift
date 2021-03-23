@@ -4,6 +4,7 @@ import Foundation
 import UIKit
 import BigInt
 import PromiseKit
+import Result
 
 protocol SendCoordinatorDelegate: class, CanOpenURL {
     func didFinish(_ result: ConfirmResult, in coordinator: SendCoordinator)
@@ -11,7 +12,7 @@ protocol SendCoordinatorDelegate: class, CanOpenURL {
 }
 
 class SendCoordinator: Coordinator {
-    private let transferType: TransferType
+    private let transactionType: TransactionType
     private let session: WalletSession
     private let account: AlphaWallet.Address
     private let keystore: Keystore
@@ -19,7 +20,8 @@ class SendCoordinator: Coordinator {
     private let ethPrice: Subscribable<Double>
     private let tokenHolders: [TokenHolder]!
     private let assetDefinitionStore: AssetDefinitionStore
-    private let analyticsCoordinator: AnalyticsCoordinator?
+    private let analyticsCoordinator: AnalyticsCoordinator
+    private var transactionConfirmationResult: TransactionConfirmationResult = .noData
 
     lazy var sendViewController: SendViewController = {
         return makeSendViewController()
@@ -30,8 +32,8 @@ class SendCoordinator: Coordinator {
     weak var delegate: SendCoordinatorDelegate?
 
     init(
-            transferType: TransferType,
-            navigationController: UINavigationController = UINavigationController(),
+            transactionType: TransactionType,
+            navigationController: UINavigationController,
             session: WalletSession,
             keystore: Keystore,
             storage: TokensDataStore,
@@ -39,11 +41,10 @@ class SendCoordinator: Coordinator {
             ethPrice: Subscribable<Double>,
             tokenHolders: [TokenHolder] = [],
             assetDefinitionStore: AssetDefinitionStore,
-            analyticsCoordinator: AnalyticsCoordinator?
+            analyticsCoordinator: AnalyticsCoordinator
     ) {
-        self.transferType = transferType
+        self.transactionType = transactionType
         self.navigationController = navigationController
-        self.navigationController.modalPresentationStyle = .formSheet
         self.session = session
         self.account = account
         self.keystore = keystore
@@ -52,39 +53,26 @@ class SendCoordinator: Coordinator {
         self.tokenHolders = tokenHolders
         self.assetDefinitionStore = assetDefinitionStore
         self.analyticsCoordinator = analyticsCoordinator
+        self.navigationController.setNavigationBarHidden(false, animated: true)
     }
 
     func start() {
-        sendViewController.configure(viewModel:
-                .init(transferType: sendViewController.transferType,
-                        session: session,
-                        storage: sendViewController.storage
-                        )
-        )
-        //Make sure the pop up, especially the height, is enough to fit the content in iPad
-        sendViewController.preferredContentSize = CGSize(width: 540, height: 700)
-        if navigationController.viewControllers.isEmpty {
-            navigationController.viewControllers = [sendViewController]
-        } else {
-            sendViewController.navigationItem.largeTitleDisplayMode = .never
-            navigationController.pushViewController(sendViewController, animated: true)
-        }
+        sendViewController.configure(viewModel: .init(transactionType: sendViewController.transactionType, session: session, storage: sendViewController.storage))
+
+        navigationController.pushViewController(sendViewController, animated: true)
     }
 
-    func makeSendViewController() -> SendViewController {
+    private func makeSendViewController() -> SendViewController {
         let controller = SendViewController(
             session: session,
             storage: storage,
             account: account,
-            transferType: transferType,
+            transactionType: transactionType,
             cryptoPrice: ethPrice,
             assetDefinitionStore: assetDefinitionStore
         )
 
-        if navigationController.viewControllers.isEmpty {
-            controller.navigationItem.leftBarButtonItem = UIBarButtonItem(title: R.string.localizable.cancel(), style: .plain, target: self, action: #selector(dismiss))
-        }
-        switch transferType {
+        switch transactionType {
         case .nativeCryptocurrency(_, let destination, let amount):
             controller.targetAddressTextField.value = destination?.stringValue ?? ""
             if let amount = amount {
@@ -95,17 +83,19 @@ class SendCoordinator: Coordinator {
         case .ERC20Token(_, let destination, let amount):
             controller.targetAddressTextField.value = destination?.stringValue ?? ""
             controller.amountTextField.ethCost = amount ?? ""
-        case .ERC875Token: break
-        case .ERC875TokenOrder: break
-        case .ERC721Token: break
-        case .ERC721ForTicketToken: break
-        case .dapp: break
+        case .ERC875Token, .ERC875TokenOrder, .ERC721Token, .ERC721ForTicketToken, .dapp, .tokenScript, .claimPaidErc875MagicLink:
+            break
         }
         controller.delegate = self
+        controller.navigationItem.largeTitleDisplayMode = .never
+        controller.navigationItem.leftBarButtonItem = UIBarButtonItem.backBarButton(self, selector: #selector(dismiss))
+
         return controller
     }
 
-    @objc func dismiss() {
+    @objc private func dismiss() {
+        removeAllCoordinators()
+
         delegate?.didCancel(in: self)
     }
 }
@@ -121,44 +111,77 @@ extension SendCoordinator: ScanQRCodeCoordinatorDelegate {
     }
 }
 
+struct FungiblesTransactionAmount {
+    var value: String
+    var shortValue: String?
+    var isAllFunds: Bool = false
+}
+
 extension SendCoordinator: SendViewControllerDelegate {
     func openQRCode(in controller: SendViewController) {
         guard navigationController.ensureHasDeviceAuthorization() else { return }
 
-        let coordinator = ScanQRCodeCoordinator(navigationController: navigationController, account: session.account, server: session.server)
+        let coordinator = ScanQRCodeCoordinator(analyticsCoordinator: analyticsCoordinator, navigationController: navigationController, account: session.account)
         coordinator.delegate = self
         addCoordinator(coordinator)
-        coordinator.start()
+        coordinator.start(fromSource: .sendFungibleScreen)
     }
 
-    func didPressConfirm(transaction: UnconfirmedTransaction, in viewController: SendViewController) {
-
-        let configurator = TransactionConfigurator(
-            session: session,
-            account: account,
-            transaction: transaction
-        )
-        let controller = ConfirmPaymentViewController(
-            session: session,
+    func didPressConfirm(transaction: UnconfirmedTransaction, in viewController: SendViewController, amount: String, shortValue: String?) {
+        let configuration: TransactionConfirmationConfiguration = .sendFungiblesTransaction(
+            confirmType: .signThenSend,
             keystore: keystore,
-            configurator: configurator,
-            confirmType: .signThenSend
+            assetDefinitionStore: assetDefinitionStore,
+            amount: FungiblesTransactionAmount(value: amount, shortValue: shortValue, isAllFunds: viewController.isAllFunds),
+            ethPrice: ethPrice
         )
-        controller.didCompleted = { [weak self] result in
-            guard let strongSelf = self else { return }
-            switch result {
-            case .success(let type):
-                strongSelf.delegate?.didFinish(type, in: strongSelf)
-            case .failure(let error):
-                strongSelf.navigationController.displayError(error: error)
-            }
-        }
-        controller.navigationItem.largeTitleDisplayMode = .never
-        navigationController.pushViewController(controller, animated: true)
+        let coordinator = TransactionConfirmationCoordinator(navigationController: navigationController, session: session, transaction: transaction, configuration: configuration, analyticsCoordinator: analyticsCoordinator)
+        addCoordinator(coordinator)
+        coordinator.delegate = self
+        coordinator.start(fromSource: .sendFungible)
     }
 
     func lookup(contract: AlphaWallet.Address, in viewController: SendViewController, completion: @escaping (ContractData) -> Void) {
         fetchContractDataFor(address: contract, storage: storage, assetDefinitionStore: assetDefinitionStore, completion: completion)
+    }
+}
+
+extension SendCoordinator: TransactionConfirmationCoordinatorDelegate {
+    func coordinator(_ coordinator: TransactionConfirmationCoordinator, didFailTransaction error: AnyError) {
+        //TODO improve error message. Several of this delegate func
+        coordinator.navigationController.displayError(message: error.prettyError)
+    }
+
+    func coordinator(_ coordinator: TransactionConfirmationCoordinator, didCompleteTransaction result: TransactionConfirmationResult) {
+        coordinator.close { [weak self] in
+            guard let strongSelf = self else { return }
+
+            strongSelf.removeCoordinator(coordinator)
+
+            strongSelf.transactionConfirmationResult = result
+
+            let coordinator = TransactionInProgressCoordinator(navigationController: strongSelf.navigationController)
+            coordinator.delegate = strongSelf
+            strongSelf.addCoordinator(coordinator)
+
+            coordinator.start()
+        }
+    }
+
+    func didClose(in coordinator: TransactionConfirmationCoordinator) {
+        removeCoordinator(coordinator)
+    }
+}
+
+extension SendCoordinator: TransactionInProgressCoordinatorDelegate {
+
+    func transactionInProgressDidDismiss(in coordinator: TransactionInProgressCoordinator) {
+        switch transactionConfirmationResult {
+        case .confirmationResult(let result):
+            delegate?.didFinish(result, in: self)
+        case .noData:
+            break
+        }
     }
 }
 
